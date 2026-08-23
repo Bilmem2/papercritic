@@ -1,13 +1,19 @@
-/* PaperCritic Mobile v3.5.0 - Ollama Cloud CORS proxy */
+/* PaperCritic Mobile v3.6 - Ollama Cloud CORS proxy */
 
 const ALLOWED_ORIGIN = 'https://bilmem2.github.io';
 const OLLAMA_ORIGIN = 'https://ollama.com';
 
+// Models verified on the current Ollama Cloud account for PaperCritic Mobile.
+const VERIFIED_MODELS = new Set([
+  'gemma4:31b',
+  'minimax-m3',
+  'gpt-oss:120b',
+]);
+
 const MODEL_ALIASES = {
-  'deepseek-v4-flash': 'deepseek-v4-flash:0731',
-  'deepseek-v4-pro': 'deepseek-v4-pro:0813',
-  'qwen3.5': 'qwen3.5:397b',
-  'gemma4': 'gemma4:31b',
+  'gemma4:31b-cloud': 'gemma4:31b',
+  'minimax-m3:cloud': 'minimax-m3',
+  'gpt-oss:120b-cloud': 'gpt-oss:120b',
 };
 
 function corsHeaders() {
@@ -29,6 +35,12 @@ function jsonResponse(status, payload) {
       ...corsHeaders(),
     },
   });
+}
+
+function isVerifiedModelName(name) {
+  if (!name) return false;
+  const normalized = name.endsWith(':cloud') ? name.slice(0, -':cloud'.length) : name;
+  return VERIFIED_MODELS.has(normalized);
 }
 
 async function buildUpstreamRequest(request) {
@@ -80,7 +92,7 @@ export default {
       return jsonResponse(200, {
         ok: true,
         service: 'papercritic-ollama-proxy',
-        version: '3.5.0',
+        version: '3.6.0',
       });
     }
 
@@ -112,6 +124,16 @@ export default {
         headers,
         body,
       });
+
+      // /api/tags is the model catalogue consumed by PaperCritic. Do not expose
+      // the entire Ollama catalogue: return only account-verified models.
+      if (upstreamPath === '/api/tags' && upstreamResponse.ok) {
+        const payload = await upstreamResponse.json();
+        const models = Array.isArray(payload?.models)
+          ? payload.models.filter(model => isVerifiedModelName(model?.name))
+          : [];
+        return jsonResponse(200, { ...payload, models });
+      }
 
       const responseHeaders = new Headers(upstreamResponse.headers);
       for (const [key, value] of Object.entries(corsHeaders())) {
