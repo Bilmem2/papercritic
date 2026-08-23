@@ -244,7 +244,7 @@
         <div class="rounded-xl border border-cyan-400/15 bg-cyan-400/[.06] p-3 text-[11px] leading-5 text-cyan-100/80"><i class="fa-solid fa-circle-info mr-1.5 text-cyan-300"></i>Sağlayıcıyı, anahtarınızı ve modeli seçin; API uç noktası otomatik ayarlanır. Başka ince ayar gerekmez.</div>
         <div><label for="providerSelect" class="text-xs font-bold text-slate-300">Sağlayıcı</label><select id="providerSelect" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-indigo-400"><option value="gemini">Google Gemini (AI Studio)</option><option value="ollama">Ollama Cloud API</option></select></div>
         <div id="ollamaConnectionGroup" class="hidden space-y-2">
-          <div class="rounded-xl border border-indigo-300/15 bg-indigo-500/5 p-3 text-xs leading-5 text-slate-300"><div class="font-bold text-indigo-200">Ollama Cloud</div><div class="mt-1">Bu mobil sürüm Ollama Desktop veya localhost kullanmaz. İstekler doğrudan <span class="font-mono text-indigo-200">https://ollama.com/api</span> adresine gider.</div></div>
+          <div class="rounded-xl border border-indigo-300/15 bg-indigo-500/5 p-3 text-xs leading-5 text-slate-300"><div class="font-bold text-indigo-200">Ollama Cloud</div><div class="mt-1">Bu mobil sürüm Ollama Desktop veya localhost kullanmaz. İstekler doğrudan PaperCritic Cloudflare proxy'si üzerinden Ollama Cloud'a gider.</div></div>
         </div>
         <div>
           <div class="flex items-center justify-between gap-3"><label id="apiKeyLabel" for="apiKey" class="text-xs font-bold text-slate-300">API anahtarı</label><button id="toggleKeyBtn" type="button" class="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-800 hover:text-white" aria-label="API anahtarını göster/gizle"><i class="fa-regular fa-eye"></i></button></div>
@@ -311,7 +311,7 @@
     const NVIDIA_CHAT_ENDPOINT = `${NVIDIA_API_BASE}/chat/completions`;
     const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
     const OLLAMA_API_BASE = 'https://ollama.com/api';
-    const OLLAMA_CLOUD_API_BASE = 'https://ollama.com/api';
+    const OLLAMA_CLOUD_API_BASE = 'https://papercritic-ollama.can-sevilmis.workers.dev/api';
     const OLLAMA_DEFAULT_MODELS = [
       { id: 'deepseek-r1:8b', label: 'DeepSeek-R1 8B — local reasoning fallback' },
       { id: 'qwen3.5:9b', label: 'Qwen 3.5 9B — local multimodal generalist' },
@@ -1122,7 +1122,7 @@ YAZIM KURALLARI
         ? 'Google AI Studio model kataloğu.'
         : isNvidia
           ? (USING_LOCAL_NVIDIA_PROXY ? 'NVIDIA Build model kataloğu.' : 'NVIDIA için localhost proxy gerekli.')
-          : 'Ollama Cloud API: doğrudan ollama.com üzerinden çalışır. Mobil/API-only sürüm.';
+          : 'Ollama Cloud API: Cloudflare proxy üzerinden çalışır. Mobil/API-only sürüm.';
       const models = isOllama ? OLLAMA_CLOUD_MODELS : getFallbackModels(provider);
       populateModelSelect(models, selectedId || models[0]?.id);
       updateReasoningUI();
