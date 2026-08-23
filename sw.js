@@ -1,4 +1,4 @@
-const CACHE = 'papercritic-mobile-v3.4';
+const CACHE = 'papercritic-mobile-v3.5';
 const ASSETS = ['./index.html', './manifest.webmanifest'];
 const OLLAMA_API_ORIGIN = 'https://ollama.com';
 const OLLAMA_PROXY_ORIGIN = 'https://papercritic-ollama.can-sevilmis.workers.dev';
@@ -22,15 +22,14 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const requestUrl = new URL(event.request.url);
 
-  // Keep the static shell available offline.
   if (requestUrl.origin === self.location.origin && ASSETS.some(a => new URL(a, self.location).pathname === requestUrl.pathname)) {
     event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request)));
     return;
   }
 
-  // v3.4: route PaperCritic's direct Ollama Cloud requests through the
-  // Cloudflare Worker. This avoids browser CORS restrictions while keeping
-  // the user's API key in the browser. The Worker does not store the key.
+  // Safety net for any legacy frontend code that still targets ollama.com/api/*.
+  // All browser Ollama traffic is sent through the Cloudflare Worker so mobile
+  // browsers never have to perform a cross-origin request to ollama.com.
   if (requestUrl.origin === OLLAMA_API_ORIGIN && requestUrl.pathname.startsWith('/api/')) {
     event.respondWith((async () => {
       const proxyUrl = new URL(requestUrl.pathname + requestUrl.search, OLLAMA_PROXY_ORIGIN);
