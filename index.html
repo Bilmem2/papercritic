@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="PaperCritic AI — PDF makaleler için kanıta dayalı akademik hakemlik çalışma alanı." />
+  <title>PaperCritic AI · Academic Review Workspace</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%234f46e5'/%3E%3Cpath d='M19 18h18a9 9 0 0 1 9 9v20H28a9 9 0 0 1-9-9V18Z' fill='none' stroke='white' stroke-width='4'/%3E%3Cpath d='M28 27h11M28 35h11M28 43h7' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+
+  <!-- UI, icons, PDF extraction, Markdown rendering and sanitization -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" referrerpolicy="no-referrer" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Manrope', 'ui-sans-serif', 'system-ui'], mono: ['DM Mono', 'ui-monospace'] },
+          colors: { brand: { 300: '#a5b4fc', 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' } },
+          boxShadow: { glow: '0 0 0 1px rgba(129,140,248,.16), 0 20px 50px rgba(15,23,42,.32)' }
+        }
+      }
+    };
+  </script>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { min-height: 100%; background: #020617; }
+    body { overflow-x: hidden; }
+    .noise { position: fixed; inset: 0; pointer-events: none; opacity: .025; z-index: 30; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.9'/%3E%3C/svg%3E"); }
+    .panel { background: rgba(15, 23, 42, .72); border: 1px solid rgba(148, 163, 184, .12); box-shadow: 0 24px 70px rgba(0,0,0,.16); backdrop-filter: blur(18px); }
+    .navy-grid { background-image: linear-gradient(rgba(129,140,248,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(129,140,248,.045) 1px, transparent 1px); background-size: 32px 32px; }
+    .dropzone.dragging { border-color: #818cf8; background: rgba(79,70,229,.14); transform: translateY(-1px); }
+    .mode-card { transition: border-color .18s ease, background-color .18s ease, transform .18s ease; }
+    .mode-card:hover { transform: translateY(-1px); }
+    .mode-card input:checked + .mode-content { border-color: rgba(129,140,248,.9); background: rgba(79,70,229,.16); }
+    .mode-card input:checked + .mode-content .mode-dot { opacity: 1; transform: scale(1); }
+    .report-prose { color: #cbd5e1; line-height: 1.78; font-size: .94rem; }
+    .report-prose > :first-child { margin-top: 0; }
+    .report-prose h1, .report-prose h2, .report-prose h3, .report-prose h4 { color: #f8fafc; font-weight: 800; line-height: 1.25; letter-spacing: -.015em; }
+    .report-prose h1 { font-size: 1.5rem; margin: 1.8em 0 .8em; }
+    .report-prose h2 { font-size: 1.2rem; margin: 2em 0 .7em; padding-bottom: .55rem; border-bottom: 1px solid rgba(148,163,184,.15); }
+    .report-prose h3 { font-size: 1.03rem; margin: 1.55em 0 .45em; color: #c7d2fe; }
+    .report-prose p { margin: .65em 0; }
+    .report-prose ul, .report-prose ol { margin: .7em 0; padding-left: 1.35rem; }
+    .report-prose li { margin: .34em 0; padding-left: .18rem; }
+    .report-prose strong { color: #f1f5f9; font-weight: 700; }
+    .report-prose em { color: #c4b5fd; }
+    .report-prose blockquote { border-left: 3px solid #6366f1; margin: 1.1em 0; padding: .55em 1em; color: #c7d2fe; background: rgba(99,102,241,.08); border-radius: 0 .5rem .5rem 0; }
+    .report-prose code { font-family: 'DM Mono', monospace; font-size: .83em; color: #c4b5fd; background: rgba(99,102,241,.14); padding: .12em .34em; border-radius: .3rem; }
+    .report-prose pre { overflow: auto; padding: 1rem; border-radius: .75rem; background: #020617; border: 1px solid rgba(148,163,184,.12); }
+    .report-prose pre code { padding: 0; background: transparent; }
+    .report-prose a { color: #a5b4fc; text-decoration: underline; text-underline-offset: 3px; }
+    .report-prose table { width: 100%; border-collapse: collapse; margin: 1.1rem 0; overflow: hidden; border-radius: .6rem; font-size: .88rem; }
+    .report-prose th { color: #e2e8f0; background: rgba(99,102,241,.15); font-weight: 700; }
+    .report-prose td, .report-prose th { padding: .6rem .7rem; border: 1px solid rgba(148,163,184,.16); text-align: left; vertical-align: top; }
+    .citation { display: inline-flex; align-items: center; white-space: nowrap; font: 500 .68rem/1 'DM Mono', monospace; color: #c7d2fe; background: rgba(99,102,241,.15); border: 1px solid rgba(129,140,248,.25); padding: .2rem .37rem; margin: 0 .06rem; border-radius: .32rem; vertical-align: .07rem; }
+    .scroll-thin::-webkit-scrollbar { width: 7px; height: 7px; }
+    .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+    .scroll-thin::-webkit-scrollbar-thumb { background: rgba(100,116,139,.4); border-radius: 10px; }
+    .status-pulse { animation: pulseSoft 1.45s ease-in-out infinite; }
+    @keyframes pulseSoft { 50% { opacity: .42; } }
+    @media print {
+      body { background: white !important; color: #111827 !important; }
+      #appShell, .noise { display: none !important; }
+      #printArea { display: block !important; color: #111827 !important; max-width: 850px; margin: 0 auto; }
+      #printArea * { color: inherit !important; background: transparent !important; box-shadow: none !important; }
+      #printArea .citation { border: 1px solid #6366f1 !important; color: #3730a3 !important; }
+      #printArea h1, #printArea h2, #printArea h3 { color: #111827 !important; }
+    }
+  </style>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="PaperCritic AI mobile API-only edition">
+<link rel="manifest" href="manifest.webmanifest">
+</head>
+<body class="font-sans text-slate-100 antialiased">
+  <div class="noise"></div>
+  <div id="appShell" class="relative min-h-screen navy-grid">
+    <div class="pointer-events-none absolute inset-x-0 top-0 h-80 bg-[radial-gradient(ellipse_at_top,rgba(79,70,229,.20),transparent_58%)]"></div>
+    <header class="relative z-10 flex h-[72px] items-center justify-between border-b border-slate-800/80 bg-slate-950/65 px-4 backdrop-blur-xl sm:px-6">
+      <div class="flex items-center gap-3">
+        <div class="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-indigo-400 to-violet-600 shadow-lg shadow-indigo-950/60"><i class="fa-solid fa-microscope text-sm text-white"></i></div>
+        <div>
+          <h1 class="text-[15px] font-extrabold tracking-tight text-white">PaperCritic <span class="text-indigo-300">AI</span></h1>
+          <p class="hidden text-[10px] font-medium uppercase tracking-[.18em] text-slate-500 sm:block">Evidence-grounded review workspace</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <div id="connectionBadge" class="hidden items-center gap-1.5 rounded-full border border-slate-700/70 bg-slate-900/70 px-2.5 py-1 text-[10px] font-semibold text-slate-400 sm:flex"><span class="h-1.5 w-1.5 rounded-full bg-slate-500"></span><span>Hazır</span></div>
+        <button id="settingsBtn" type="button" class="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-900/75 px-3 text-xs font-semibold text-slate-300 transition hover:border-indigo-400/60 hover:text-white" aria-label="Model bağlantısını aç"><i class="fa-solid fa-bolt"></i><span class="hidden sm:inline">Model Bağlan</span></button>
+      </div>
+    </header>
+
+    <main id="workspace" class="relative z-10 mx-auto grid max-w-[1780px] grid-cols-1 gap-4 p-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:p-5">
+      <!-- LEFT: upload and review setup -->
+      <aside id="setupPanel" class="panel scroll-thin rounded-2xl p-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-112px)] lg:overflow-y-auto">
+        <div class="mb-5 flex items-center justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-[.16em] text-indigo-300">01 · Kaynak</p>
+            <h2 class="mt-1 text-base font-extrabold text-white">Makale kurulumu</h2>
+          </div>
+          <span id="fileState" class="rounded-md bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-400">PDF BEKLENİYOR</span>
+        </div>
+
+        <input id="mainPdfInput" type="file" accept="application/pdf,.pdf" class="hidden" />
+        <input id="suppPdfInput" type="file" accept="application/pdf,.pdf" multiple class="hidden" />
+        <input id="coverPdfInput" type="file" accept="application/pdf,.pdf" class="hidden" />
+        <div class="space-y-2">
+          <div id="mainDropzone" role="button" tabindex="0" class="dropzone group cursor-pointer rounded-xl border border-dashed border-indigo-400/45 bg-indigo-500/[.06] p-4 transition duration-200 hover:border-indigo-300 hover:bg-indigo-500/[.12]"><div class="flex items-center gap-3"><div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-indigo-500/15 text-indigo-300"><i class="fa-solid fa-file-lines"></i></div><div class="min-w-0"><p class="text-xs font-extrabold text-slate-100">Ana makale PDF’i <span class="text-rose-300">*</span></p><p class="mt-0.5 text-[10px] text-slate-500">Tek dosya · sürükle bırak veya seç</p></div></div></div>
+          <div id="suppDropzone" role="button" tabindex="0" class="dropzone group cursor-pointer rounded-xl border border-dashed border-slate-600/80 bg-slate-950/45 p-4 transition duration-200 hover:border-cyan-400/70 hover:bg-cyan-500/[.06]"><div class="flex items-center gap-3"><div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-500/10 text-cyan-300"><i class="fa-solid fa-paperclip"></i></div><div class="min-w-0"><p class="text-xs font-extrabold text-slate-100">Supplementary materyaller</p><p class="mt-0.5 text-[10px] text-slate-500">Birden fazla PDF ekleyebilirsiniz</p></div></div></div>
+          <div id="coverDropzone" role="button" tabindex="0" class="dropzone group cursor-pointer rounded-xl border border-dashed border-slate-600/80 bg-slate-950/45 p-4 transition duration-200 hover:border-fuchsia-400/70 hover:bg-fuchsia-500/[.06]"><div class="flex items-center gap-3"><div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-fuchsia-500/10 text-fuchsia-300"><i class="fa-solid fa-envelope-open-text"></i></div><div class="min-w-0"><p class="text-xs font-extrabold text-slate-100">Cover letter <span class="text-slate-600">(opsiyonel)</span></p><p class="mt-0.5 text-[10px] text-slate-500">Editoryal mod için tek PDF</p></div></div></div>
+        </div>
+
+        <section id="fileCard" class="mt-3 hidden overflow-hidden rounded-xl border border-indigo-400/20 bg-indigo-500/[.07]">
+          <div class="flex items-start gap-3 p-3">
+            <div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-rose-500/15 text-rose-300"><i class="fa-solid fa-file-pdf"></i></div>
+            <div class="min-w-0 flex-1">
+              <p id="fileName" class="truncate text-xs font-bold text-slate-100"></p>
+              <p id="fileSize" class="mt-0.5 text-[10px] text-slate-500"></p>
+            </div>
+            <button id="clearFileBtn" type="button" class="grid h-7 w-7 place-items-center rounded-md text-slate-500 transition hover:bg-rose-500/15 hover:text-rose-300" title="Dosyayı kaldır" aria-label="Dosyayı kaldır"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div class="grid grid-cols-2 border-t border-indigo-400/15">
+            <div class="px-3 py-2.5"><p class="text-[9px] font-bold uppercase tracking-wider text-slate-500">Sayfa</p><p id="pageCount" class="mt-0.5 font-mono text-sm font-medium text-indigo-200">—</p></div>
+            <div class="border-l border-indigo-400/15 px-3 py-2.5"><p class="text-[9px] font-bold uppercase tracking-wider text-slate-500">Sözcük</p><p id="wordCount" class="mt-0.5 font-mono text-sm font-medium text-indigo-200">—</p></div>
+          </div>
+          <div id="sourceFiles" class="max-h-28 divide-y divide-indigo-400/10 overflow-y-auto scroll-thin border-t border-indigo-400/15"></div>
+          <p id="contextEstimate" class="border-t border-indigo-400/15 px-3 py-2 text-[10px] leading-4 text-slate-500"></p>
+        </section>
+
+        <div id="extractState" class="mt-3 hidden items-center gap-2 rounded-lg border border-slate-700/70 bg-slate-900/65 px-3 py-2 text-xs text-slate-400"><i class="fa-solid fa-spinner fa-spin text-indigo-300"></i><span>PDF metni çıkarılıyor…</span></div>
+        <div id="extractWarning" class="mt-3 hidden rounded-lg border border-amber-400/25 bg-amber-400/[.08] p-3 text-[11px] leading-relaxed text-amber-100"><i class="fa-solid fa-triangle-exclamation mr-1.5 text-amber-300"></i><span></span></div>
+
+        <div class="my-5 border-t border-slate-800/90"></div>
+        <div class="mb-3 flex items-center justify-between"><div><p class="text-xs font-bold uppercase tracking-[.16em] text-indigo-300">02 · Lens</p><h2 class="mt-1 text-base font-extrabold text-white">İnceleme modu</h2></div></div>
+        <div class="space-y-2">
+          <label class="mode-card block cursor-pointer">
+            <input class="peer sr-only" type="radio" name="mode" value="section" checked />
+            <div class="mode-content relative rounded-xl border border-slate-700/80 bg-slate-900/50 p-3.5">
+              <span class="mode-dot absolute right-3 top-3 grid h-4 w-4 scale-75 place-items-center rounded-full border border-indigo-300 bg-indigo-500 opacity-0 transition"><i class="fa-solid fa-check text-[8px] text-white"></i></span>
+              <div class="flex gap-2.5"><span class="mt-0.5 text-indigo-300"><i class="fa-solid fa-layer-group"></i></span><div><p class="text-xs font-extrabold text-slate-100">Tam Kapsamlı Makale Değerlendirmesi</p><p class="mt-1 text-[11px] leading-relaxed text-slate-500">Özet–sonuçlar ve yüklenen tüm supplementary materyal dahil uçtan uca denetim.</p></div></div>
+            </div>
+          </label>
+          <label class="mode-card block cursor-pointer">
+            <input class="peer sr-only" type="radio" name="mode" value="methodology" />
+            <div class="mode-content relative rounded-xl border border-slate-700/80 bg-slate-900/50 p-3.5">
+              <span class="mode-dot absolute right-3 top-3 grid h-4 w-4 scale-75 place-items-center rounded-full border border-indigo-300 bg-indigo-500 opacity-0 transition"><i class="fa-solid fa-check text-[8px] text-white"></i></span>
+              <div class="flex gap-2.5"><span class="mt-0.5 text-cyan-300"><i class="fa-solid fa-chart-line"></i></span><div><p class="text-xs font-extrabold text-slate-100">Metodoloji, İstatistik &amp; Rigor</p><p class="mt-1 text-[11px] leading-relaxed text-slate-500">Geçerlilik, tutarlılık, biyolojik makullük ve istatistiksel kanıt zinciri.</p></div></div>
+            </div>
+          </label>
+          <label class="mode-card block cursor-pointer">
+            <input class="peer sr-only" type="radio" name="mode" value="desk" />
+            <div class="mode-content relative rounded-xl border border-slate-700/80 bg-slate-900/50 p-3.5">
+              <span class="mode-dot absolute right-3 top-3 grid h-4 w-4 scale-75 place-items-center rounded-full border border-indigo-300 bg-indigo-500 opacity-0 transition"><i class="fa-solid fa-check text-[8px] text-white"></i></span>
+              <div class="flex gap-2.5"><span class="mt-0.5 text-fuchsia-300"><i class="fa-solid fa-stamp"></i></span><div><p class="text-xs font-extrabold text-slate-100">Editöryal Kurul Simülasyonu</p><p class="mt-1 text-[11px] leading-relaxed text-slate-500">Hayali editör ve ikinci göz ile kapsam, yenilik, yazım ve karar denetimi.</p></div></div>
+            </div>
+          </label>
+        </div>
+        <div id="groundingNotice" class="mt-3 hidden rounded-lg border border-cyan-400/20 bg-cyan-400/[.06] p-2.5 text-[10px] leading-4 text-cyan-100/75"><i class="fa-solid fa-globe mr-1 text-cyan-300"></i><span></span></div>
+        <label class="mt-2 flex cursor-pointer items-start gap-2.5 rounded-lg border border-violet-400/20 bg-violet-500/[.06] p-2.5"><input id="crossCheckToggle" type="checkbox" class="mt-0.5 h-3.5 w-3.5 accent-violet-500"><span class="text-[10px] leading-4 text-violet-100/80"><b class="font-bold text-violet-200">Cross-check / cross-thinking</b><br><span id="crossCheckStatus">Diğer sağlayıcı yapılandırıldığında iki model birbirinin raporunu bağımsız denetler ve seçili model nihai sentezi yapar.</span></span></label>
+
+        <div class="my-5 border-t border-slate-800/90"></div>
+        <label for="reviewNotes" class="block text-xs font-bold uppercase tracking-[.16em] text-indigo-300">03 · Özel bağlam <span class="normal-case tracking-normal text-slate-600">(isteğe bağlı)</span></label>
+        <textarea id="reviewNotes" rows="4" maxlength="4000" placeholder="Örn. Hedef dergi, özellikle denetlenmesini istediğiniz iddia veya editör notu…" class="mt-2 w-full resize-y rounded-xl border border-slate-700/80 bg-slate-950/55 px-3 py-2.5 text-xs leading-relaxed text-slate-200 outline-none placeholder:text-slate-600 focus:border-indigo-400/70 focus:ring-2 focus:ring-indigo-500/15"></textarea>
+        <div class="mt-1 flex justify-end"><span id="notesCount" class="font-mono text-[10px] text-slate-600">0 / 4000</span></div>
+
+        <button id="analyzeBtn" type="button" disabled class="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-3 text-sm font-extrabold text-white shadow-lg shadow-indigo-950/50 transition hover:from-indigo-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-40"><i class="fa-solid fa-wand-magic-sparkles"></i><span>Analizi Başlat</span></button>
+        <p class="mt-3 text-center text-[10px] leading-relaxed text-slate-600"><i class="fa-solid fa-shield-halved mr-1"></i>PDF metni ve anahtar yalnızca seçtiğiniz API’ye gönderilir.</p>
+      </aside>
+
+      <!-- RIGHT: result / chat -->
+      <section id="reportPanel" class="panel flex min-h-[630px] flex-col overflow-hidden rounded-2xl lg:min-h-[calc(100vh-112px)]">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/90 bg-slate-950/35 px-4 py-3 sm:px-5">
+          <div class="flex items-center gap-1 rounded-lg bg-slate-900/80 p-1" role="tablist" aria-label="Çalışma alanı görünümü">
+            <button id="reportTabBtn" type="button" role="tab" aria-selected="true" class="tab-btn rounded-md bg-indigo-500/15 px-3 py-1.5 text-xs font-bold text-indigo-200 transition"><i class="fa-solid fa-file-lines mr-1.5"></i>Rapor</button>
+            <button id="chatTabBtn" type="button" role="tab" aria-selected="false" disabled class="tab-btn rounded-md px-3 py-1.5 text-xs font-bold text-slate-500 transition disabled:cursor-not-allowed"><i class="fa-solid fa-comments mr-1.5"></i>Soru-Cevap <span id="chatLockIcon"><i class="fa-solid fa-lock ml-1 text-[9px]"></i></span></button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button id="fullscreenBtn" type="button" class="toolbar-btn" title="Rapor alanını genişlet" aria-label="Rapor alanını genişlet"><i class="fa-solid fa-expand"></i></button>
+            <button id="downloadBtn" type="button" disabled class="toolbar-btn" title="Markdown indir" aria-label="Markdown indir"><i class="fa-solid fa-download"></i><span class="hidden xl:inline">.md</span></button>
+            <button id="copyBtn" type="button" disabled class="toolbar-btn" title="Raporu kopyala" aria-label="Raporu kopyala"><i class="fa-regular fa-copy"></i></button>
+            <button id="printBtn" type="button" disabled class="toolbar-btn" title="Yazdır veya PDF olarak kaydet" aria-label="Yazdır"><i class="fa-solid fa-print"></i></button>
+          </div>
+        </div>
+
+        <div id="reportView" class="flex min-h-0 flex-1 flex-col">
+          <div id="emptyState" class="flex flex-1 items-center justify-center p-6 sm:p-12">
+            <div class="max-w-md text-center">
+              <div class="relative mx-auto mb-7 grid h-20 w-20 place-items-center rounded-3xl border border-indigo-400/15 bg-indigo-500/[.08] text-3xl text-indigo-300"><i class="fa-solid fa-magnifying-glass-chart"></i><span class="absolute -right-2 -top-2 h-3 w-3 rounded-full bg-emerald-400 ring-4 ring-slate-900"></span></div>
+              <h2 class="text-xl font-extrabold tracking-tight text-slate-100">Kanıta dayalı hakemlik, tek yerde.</h2>
+              <p class="mt-3 text-sm leading-7 text-slate-500">PDF’nizi yükleyin, inceleme merceğini seçin ve modelin yalnızca makale metnine dayalı, sayfa atıflı raporunu alın.</p>
+              <div class="mt-7 grid grid-cols-3 gap-2 text-left">
+                <div class="rounded-xl border border-slate-800 bg-slate-900/45 p-3"><i class="fa-solid fa-file-pdf text-indigo-300"></i><p class="mt-2 text-[10px] font-bold text-slate-300">Yerel çıkarım</p></div>
+                <div class="rounded-xl border border-slate-800 bg-slate-900/45 p-3"><i class="fa-solid fa-quote-right text-indigo-300"></i><p class="mt-2 text-[10px] font-bold text-slate-300">Zorunlu atıf</p></div>
+                <div class="rounded-xl border border-slate-800 bg-slate-900/45 p-3"><i class="fa-solid fa-comments text-indigo-300"></i><p class="mt-2 text-[10px] font-bold text-slate-300">Bağlamlı sohbet</p></div>
+              </div>
+            </div>
+          </div>
+          <div id="analysisState" class="hidden flex flex-1 items-center justify-center p-6">
+            <div class="w-full max-w-sm text-center">
+              <div class="relative mx-auto h-16 w-16"><div class="absolute inset-0 rounded-full border-2 border-indigo-400/20"></div><div class="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-indigo-400"></div><div class="absolute inset-3 grid place-items-center rounded-full bg-indigo-500/10 text-indigo-300"><i class="fa-solid fa-brain status-pulse"></i></div></div>
+              <p id="analysisTitle" class="mt-5 text-sm font-extrabold text-slate-100">Hakem raporu hazırlanıyor</p>
+              <p id="analysisDetail" class="mt-2 text-xs leading-relaxed text-slate-500">Makalenin tamamı seçili API’ye istek olarak gönderiliyor…</p>
+              <button id="cancelBtn" type="button" class="mt-5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-bold text-slate-400 transition hover:border-rose-400/60 hover:text-rose-200"><i class="fa-solid fa-ban mr-1.5"></i>İptal et</button>
+            </div>
+          </div>
+          <div id="reportContentWrap" class="hidden min-h-0 flex-1 overflow-y-auto scroll-thin">
+            <article id="reportContent" class="report-prose mx-auto max-w-4xl p-5 sm:p-8"></article>
+          </div>
+          <div id="errorState" class="hidden flex flex-1 items-center justify-center p-6"><div class="max-w-lg rounded-2xl border border-rose-400/20 bg-rose-500/[.06] p-6 text-center"><div class="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-rose-500/15 text-rose-300"><i class="fa-solid fa-circle-exclamation"></i></div><h2 class="mt-4 text-base font-extrabold text-rose-100">Analiz tamamlanamadı</h2><p id="errorMessage" class="mt-2 text-xs leading-6 text-rose-200/70"></p><button id="retryBtn" type="button" class="mt-5 rounded-lg bg-rose-400/15 px-3 py-2 text-xs font-bold text-rose-200 transition hover:bg-rose-400/25"><i class="fa-solid fa-rotate-right mr-1.5"></i>Tekrar dene</button></div></div>
+        </div>
+
+        <div id="chatView" class="hidden min-h-0 flex-1 flex-col">
+          <div id="chatMessages" class="scroll-thin flex-1 space-y-4 overflow-y-auto p-4 sm:p-6"></div>
+          <form id="chatForm" class="border-t border-slate-800 bg-slate-950/45 p-3 sm:p-4">
+            <div class="flex items-end gap-2 rounded-xl border border-slate-700/80 bg-slate-900/70 p-2 focus-within:border-indigo-400/70 focus-within:ring-2 focus-within:ring-indigo-500/10">
+              <textarea id="chatInput" rows="1" maxlength="8000" placeholder="Rapor veya makale hakkında sorun…" class="scroll-thin max-h-32 min-h-[36px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-600"></textarea>
+              <button id="sendChatBtn" type="submit" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-indigo-500 text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-45" aria-label="Soruyu gönder"><i class="fa-solid fa-arrow-up"></i></button>
+            </div>
+            <p class="mt-2 px-1 text-[10px] text-slate-600">Yanıtlar makale bağlamını ve sayfa atıf kuralını korur.</p>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Print-only clone. Kept outside app shell so controls do not print. -->
+  <main id="printArea" class="hidden"></main>
+
+  <!-- Hosted-model configuration modal -->
+  <div id="settingsModal" class="fixed inset-0 z-50 hidden items-start justify-center overflow-y-auto bg-slate-950/75 p-3 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="my-2 flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-900 shadow-2xl shadow-black/60 sm:my-0 sm:max-h-[calc(100dvh-2rem)]">
+      <div class="flex items-center justify-between border-b border-slate-800 px-5 py-4"><div><p class="text-[10px] font-bold uppercase tracking-[.17em] text-indigo-300">Model bağlantısı</p><h2 id="settingsTitle" class="mt-1 text-base font-extrabold text-white">Anahtar ve model seçimi</h2></div><button id="closeSettingsBtn" type="button" class="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-800 hover:text-white" aria-label="Ayarları kapat"><i class="fa-solid fa-xmark"></i></button></div>
+      <form id="settingsForm" class="scroll-thin min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
+        <div class="rounded-xl border border-cyan-400/15 bg-cyan-400/[.06] p-3 text-[11px] leading-5 text-cyan-100/80"><i class="fa-solid fa-circle-info mr-1.5 text-cyan-300"></i>Sağlayıcıyı, anahtarınızı ve modeli seçin; API uç noktası otomatik ayarlanır. Başka ince ayar gerekmez.</div>
+        <div><label for="providerSelect" class="text-xs font-bold text-slate-300">Sağlayıcı</label><select id="providerSelect" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-indigo-400"><option value="gemini">Google Gemini (AI Studio)</option><option value="ollama">Ollama Cloud API</option></select></div>
+        <div id="ollamaConnectionGroup" class="hidden space-y-2">
+          <div class="rounded-xl border border-indigo-300/15 bg-indigo-500/5 p-3 text-xs leading-5 text-slate-300"><div class="font-bold text-indigo-200">Ollama Cloud</div><div class="mt-1">Bu mobil sürüm Ollama Desktop veya localhost kullanmaz. İstekler doğrudan <span class="font-mono text-indigo-200">https://ollama.com/api</span> adresine gider.</div></div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between gap-3"><label id="apiKeyLabel" for="apiKey" class="text-xs font-bold text-slate-300">API anahtarı</label><button id="toggleKeyBtn" type="button" class="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-800 hover:text-white" aria-label="API anahtarını göster/gizle"><i class="fa-regular fa-eye"></i></button></div>
+          <div class="relative mt-1.5"><input id="apiKey" type="password" autocomplete="off" spellcheck="false" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 pr-11 font-mono text-xs text-slate-100 outline-none placeholder:text-slate-600 focus:border-indigo-400" placeholder="API anahtarınızı yapıştırın"></div>
+          <p id="apiKeyHint" class="mt-1.5 text-[10px] leading-4 text-slate-500">Anahtar bu cihazın yerel tarayıcı depolamasında saklanır.</p>
+        </div>
+        <div><div class="flex items-center justify-between gap-3"><label for="modelSelect" class="text-xs font-bold text-slate-300">İnceleme modeli</label><button id="refreshModelsBtn" type="button" class="rounded-md px-2 py-1 text-[10px] font-bold text-indigo-300 transition hover:bg-indigo-500/10 hover:text-indigo-100"><i class="fa-solid fa-rotate-right mr-1"></i>Kataloğu yenile</button></div><select id="modelSelect" class="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-xs text-slate-100 outline-none focus:border-indigo-400" required></select><p id="modelCatalogHint" class="mt-1.5 text-[10px] leading-4 text-slate-500">Bir model seçin. Katalog yenileme isteğe bağlıdır.</p></div>
+        <div class="rounded-xl border border-amber-400/20 bg-amber-500/[.06] p-3">
+          <div class="flex items-center justify-between gap-3">
+            <label class="flex items-center gap-2 text-xs font-bold text-amber-100"><input id="fallbackToggle" type="checkbox" class="h-3.5 w-3.5 accent-amber-500"> Otomatik fallback kullan</label>
+            <span class="text-[10px] text-amber-100/60">Hata/kota durumunda yedek model</span>
+          </div>
+          <select id="fallbackProviderSelect" class="mt-2 w-full rounded-lg border border-amber-300/15 bg-slate-950 px-3 py-2 text-xs text-slate-100 outline-none focus:border-amber-400"></select>
+          <p class="mt-1.5 text-[10px] leading-4 text-amber-100/55">Yalnızca retryable hatalarda devreye girer. Rapor yeniden üretilir.</p>
+        </div>
+        <div id="reasoningGroup" class="hidden rounded-xl border border-violet-400/20 bg-violet-500/[.06] p-3"><label for="reasoningSelect" class="text-xs font-bold text-violet-100">Nemotron düşünme modu</label><select id="reasoningSelect" class="mt-1.5 w-full rounded-lg border border-violet-300/25 bg-slate-950 px-3 py-2.5 font-mono text-xs text-slate-100 outline-none focus:border-violet-400"><option value="none">Standard — hızlı yanıt</option><option value="medium">Dengeli — orta muhakeme</option><option value="high">Thinking — derin muhakeme</option></select><p class="mt-1.5 text-[10px] leading-4 text-violet-100/60">Nemotron 3 Ultra için NVIDIA'nın reasoning_effort ayarıdır. Thinking daha uzun sürebilir ve daha fazla çıktı bütçesi kullanır.</p></div>
+        <p class="rounded-lg border border-slate-800 bg-slate-950/45 p-3 text-[11px] leading-relaxed text-slate-400"><i class="fa-solid fa-shield-halved mr-1.5 text-slate-500"></i>Anahtar ve model tercihiniz bu cihazın yerel tarayıcı depolamasında sağlayıcı bazında saklanır. Ortak bilgisayarda kullanıyorsanız anahtarı sonradan kaldırın; tarayıcı uygulamasında anahtar ağ isteğinde kullanılacaktır.</p>
+        <div class="flex justify-end gap-2 border-t border-slate-800 pt-4"><button id="cancelSettingsBtn" type="button" class="rounded-lg px-3 py-2 text-xs font-bold text-slate-400 transition hover:bg-slate-800 hover:text-white">Vazgeç</button><button type="submit" class="rounded-lg bg-indigo-500 px-4 py-2 text-xs font-extrabold text-white transition hover:bg-indigo-400"><i class="fa-solid fa-check mr-1.5"></i>Hazırla</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(360px,calc(100vw-2rem))] flex-col gap-2"></div>
+
+  <style>
+    .toolbar-btn { display:inline-flex; align-items:center; justify-content:center; gap:.35rem; height:2rem; min-width:2rem; padding:0 .55rem; border-radius:.5rem; border:1px solid rgba(71,85,105,.8); background:rgba(15,23,42,.72); color:#94a3b8; font-size:.72rem; font-weight:700; transition:.18s; }
+    .toolbar-btn:hover:not(:disabled) { border-color:rgba(129,140,248,.65); background:rgba(99,102,241,.12); color:#e0e7ff; }
+    .toolbar-btn:disabled { opacity:.35; cursor:not-allowed; }
+    #workspace.focus-report { grid-template-columns: 1fr; max-width: none; }
+    #workspace.focus-report #setupPanel { display: none; }
+  </style>
+
+  <script type="module">
+    // Use the broadly compatible classic PDF.js build. Direct worker loading is much
+    // more reliable on mobile Safari/Chrome than a Blob-imported module worker.
+    const PDF_WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_URL;
+
+    /*
+      PaperCritic AI
+      Privacy note: PDF parsing happens in this browser. The full extracted text is only sent
+      when the user presses Analyse, to the selected provider with their supplied API key.
+    */
+    const $ = (selector) => document.querySelector(selector);
+    const $$ = (selector) => [...document.querySelectorAll(selector)];
+    const state = {
+      file: null,
+      files: [],
+      paperText: '',
+      pages: 0,
+      reportMarkdown: '',
+      reviewMode: 'section',
+      chatHistory: [],
+      config: null,
+      controller: null,
+      isAnalyzing: false,
+      isChatting: false
+    };
+
+    // NVIDIA's hosted OpenAI-compatible endpoints. The catalogue is refreshed from /v1/models
+    // after an API key is supplied; this small fallback set keeps the picker useful offline.
+    const USING_LOCAL_NVIDIA_PROXY = false;
+    const NVIDIA_API_BASE = 'https://integrate.api.nvidia.com/v1';
+    const NVIDIA_CHAT_ENDPOINT = `${NVIDIA_API_BASE}/chat/completions`;
+    const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+    const OLLAMA_API_BASE = 'https://ollama.com/api';
+    const OLLAMA_CLOUD_API_BASE = 'https://ollama.com/api';
+    const OLLAMA_DEFAULT_MODELS = [
+      { id: 'deepseek-r1:8b', label: 'DeepSeek-R1 8B — local reasoning fallback' },
+      { id: 'qwen3.5:9b', label: 'Qwen 3.5 9B — local multimodal generalist' },
+      { id: 'gemma4:12b', label: 'Gemma 4 12B — local reasoning + multimodal' },
+      { id: 'deepseek-v4-flash:cloud', label: 'DeepSeek-V4-Flash — Ollama Cloud via local service' },
+      { id: 'deepseek-v4-pro:cloud', label: 'DeepSeek-V4-Pro — Ollama Cloud via local service' },
+      { id: 'qwen3.5:cloud', label: 'Qwen 3.5 397B — Ollama Cloud via local service' },
+      { id: 'gemma4:31b-cloud', label: 'Gemma 4 31B — Ollama Cloud via local service' },
+    ];
+    // Direct https://ollama.com/api uses the API model names (without the :cloud suffix).
+    // The :cloud tags are only used when routing through the local Ollama service.
+    const OLLAMA_CLOUD_MODELS = [
+      { id: 'deepseek-v4-pro', label: 'DeepSeek-V4-Pro — 1.6T · 1M · max thinking · extra high usage' },
+      { id: 'qwen3.5', label: 'Qwen 3.5 — 397B · 256K · vision + thinking · medium usage' },
+      { id: 'gemma4:31b', label: 'Gemma 4 31B — 256K · vision + thinking · low usage' },
+      { id: 'deepseek-v4-flash', label: 'DeepSeek-V4-Flash — 284B / 13B active · 1M · medium usage' }
+    ];
+    const GEMINI_MODEL_FALLBACKS = [
+      { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash — önerilen dengeli seçenek' },
+      { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash — hızlı inceleme' },
+      { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro — derin inceleme' }
+    ];
+    const NVIDIA_CHAT_MODEL_FALLBACKS = [
+      { id: 'nvidia/nemotron-3-ultra-550b-a55b', label: 'Nemotron 3 Ultra 550B — önerilen derin inceleme' },
+      { id: 'z-ai/glm-5.2', label: 'GLM-5.2 — güçlü genel değerlendirme' },
+      { id: 'z-ai/glm5.1', label: 'GLM-5.1 — genel değerlendirme' },
+      { id: 'moonshotai/kimi-k2-thinking', label: 'Kimi K2 Thinking — uzun muhakeme' },
+      { id: 'moonshotai/kimi-k2-instruct', label: 'Kimi K2 Instruct — hızlı inceleme' },
+      { id: 'minimaxai/minimax-m2.7', label: 'MiniMax M2.7' },
+      { id: 'qwen/qwen3-coder-480b-a35b-instruct', label: 'Qwen3 Coder 480B' },
+      { id: 'deepseek-ai/deepseek-v3.2', label: 'DeepSeek V3.2' },
+      { id: 'nvidia/llama-3.1-nemotron-nano-8b-v1', label: 'Llama 3.1 Nemotron Nano 8B — ekonomik' },
+      { id: 'abacusai/dracarys-llama-3.1-70b-instruct', label: 'Dracarys Llama 3.1 70B' }
+    ];
+
+    const MODE_DETAILS = {
+      section: {
+        label: 'Tam Kapsamlı Makale Değerlendirmesi',
+        instruction: `Bu, yüklenen dosya paketinin baştan sona, uçtan uca denetimidir. İlk dosya PRIMARY ARTICLE, sonraki her dosya SUPPLEMENTARY MATERIAL olarak işaretlenmiştir. Şu sırayla incele: 1) Başlık, özet ve ana iddia; 2) Giriş/literatür çerçevesi; 3) Araştırma sorusu, materyal ve metotlar; 4) Bulgular, tablolar/şekiller ve bulguların metinle tutarlılığı; 5) Tartışma, sınırlılıklar ve sonuçlar; 6) Ek materyallerin ana metni destekleyip desteklemediği, ek yöntem/veri/analizlerin ana metinle çelişip çelişmediği; 7) Bütünsel kanıt zinciri ve önceliklendirilmiş revizyon planı. Her bölümde güçlü yönleri, Kritik/Önemli/Küçük sorunları ve uygulanabilir düzeltmeleri ayır. Bir ek dosya yoksa bunu sorun olarak yorumlama. Sentezde önerini (Kabul / Küçük Revizyon / Büyük Revizyon / Red) net ver; bu yalnızca metne dayalı simüle edilmiş hakem önerisidir.`
+      },
+      methodology: {
+        label: 'Metodoloji, İstatistik ve Bilimsel Rigor Denetimi',
+        instruction: `Araştırma sorusu ile tasarımın hizasını, nedensel/çıkarımsal sınırları, örneklem büyüklüğü ve güç gerekçesini, dahil etme-dışlama ölçütlerini, kontrol gruplarını, randomizasyon/körlemeyi, ölçümlerin geçerlik ve güvenilirliğini, confounder’ları, veri kaybını, çoklu karşılaştırmaları, model varsayımlarını, etki büyüklüklerini, belirsizliği ve sonuçların tekrarlanabilirliğini sistematik denetle. İstatistiksel sonuçların bildirilen biyolojik mekanizma, ölçek, zaman çizelgesi ve deney tasarımıyla biologically plausible olup olmadığını yalnızca metin kanıtı veya açıkça belirtilmiş harici doğrulama ile değerlendir; sezgiye dayanarak "imkânsız" hükmü verme. Metin uygunsa null model/permutation testleri, filogenetik sinyal/paraloji/thinning kontrolleri, veri sızıntısı, seçilim yanlılığı ve analitik esneklik açısından kontrol öner. Bir tekniğin metinde geçmemesini yalnızca "raporlanmamış; değerlendirilemiyor" diye ifade et; uygulanmadığını varsayma. Kritik/Önemli/Küçük düzeyinde önceliklendir ve her sorunun olası etkisini, kanıtını ve en küçük uygulanabilir düzeltmesini yaz.`
+      },
+      desk: {
+        label: 'Editöryal Kurul Simülasyonu',
+        instruction: `İki aşamalı, hayali ancak kanıta sıkı bağlı bir editöryal kurul simülasyonu yürüt. Aşama 1 — Sorumlu Editör: metnin yazım kalitesi, mantıksal tutarlılığı, anlatı akışı, alan/kitle/dergi scope uyumu, novelty ve etki iddiası, kanıt eşiği, raporlama şeffaflığı ve desk-reject riskini değerlendir. Açık hedef dergi yoksa yalnızca makalenin kendi belirttiği alan ve kitleye göre koşullu yorum yap; dergi politikası veya kapsamı uydurma. Aşama 2 — İkinci Editöryal Kurul Üyesi: yalnızca ilk editörün kararını zorlayabilecek belirsizlikleri, karşı kanıtları, aşırı yorumları ve gözden kaçmış güçlü yönleri bağımsız biçimde denetle. Aşama 3 — Nihai Editöryal Karar: iki görüşteki somut uyuşma/ayrışmaları göster; Desk Reject / Dış Hakeme Gönder / Küçük Revizyon Bilgisi Talebi seçeneklerinden biri için gerekçeli simülasyon kararı ver. 1–10 desk-reject risk skoru sun ve en az üç metin-atıflı gerekçeye bağla. Son olarak hedefleme, başlık/özet düzeltmesi ve kapak mektubu için uygulanabilir konumlandırma önerileri yaz.`
+      }
+    };
+
+    // The non-negotiable evidence rules shared by all review modes.
+    const EVIDENCE_RULES = `
+KİMLİK VE GÖREV
+Sen titiz, alanlar arası deneyimli bir akademik hakem ve editörsün. Aşağıdaki kaynak paketini sağlanan metindeki kanıtlar üzerinden değerlendir. Harici kaynak yalnızca metodoloji modunda araç açıkça sağlanmışsa kullanılabilir.
+
+ZORUNLU KANIT VE ATIF KURALLARI
+1. RAPORDAKİ HER OLGUSAL İDDİA, ELEŞTİRİ, ÖVGÜ, ÇIKARIM VE ÖNERİ; ilgili kaynak konumuyla bitmelidir. Ana makale için [PAGE X], [Table Y] veya [Section Z] kullan. Bir supplementary dosyadan söz ediyorsan [Supplement: DOSYA_ADI, PAGE X] kullan. Mümkün olduğunda sayfa atfı kullan.
+2. Bir bilgi metinde yoksa sayı, p-değeri, örneklem, sonuç, etik onay, tablo, analiz veya yöntem UYDURMA. Bunun yerine "metinde raporlanmamış; bu nedenle değerlendirilemiyor" de ve bunu metnin ilgili konumuyla ilişkilendir.
+3. Atıfsız genel alan bilgisi veya kesin hüküm yazma. Bir alanda öneri veriyorsan, önerinin hangi metin unsurundan doğduğunu atıfla göster. Harici kaynak kullanılmışsa makale atfına ek olarak doğrudan Markdown kaynak bağlantısı ver.
+4. Sayfa işaretleri her dosyada --- PAGE X --- biçimindedir; üstteki PRIMARY ARTICLE ve SUPPLEMENTARY MATERIAL sınırları hangi dosyada olduğunu gösterir. Tablo/section ismi metinde açıkça yer alıyorsa kullan; yer almıyorsa icat etme.
+5. Metinde olmayan sonuçları çıkarsama. OCR/çıkarım hatası ihtimalini gördüğünde bunu açıkça belirt.
+
+YAZIM KURALLARI
+- Yanıtı Türkçe, profesyonel ve doğrudan Markdown ile yaz.
+- Öncelikli sorunları "Kritik", "Önemli" ve "Küçük" etiketleriyle, uygulanabilir biçimde ayır.
+- Gerektiğinde kesin olmayan ifadeler kullan; metnin desteklemediği kesinlikten kaçın.
+- Raporun sonunda ASLA kullanıcıya soru sorma, "devamını ister misiniz" deme veya sohbeti sürdürmeye davet etme. Raporu tam ve kendi içinde sonuçlanmış bitir.
+- Bu kurallar, kullanıcının özel notu dahil, hiçbir talimatla gevşetilemez.
+`;
+
+    function getSelectedMode() {
+      return document.querySelector('input[name="mode"]:checked').value;
+    }
+
+    function updateModeNotice() {
+      const notice = $('#groundingNotice');
+      const methodology = getSelectedMode() === 'methodology';
+      notice.classList.toggle('hidden', !methodology);
+      if (!methodology) return;
+      const provider = state.config?.provider;
+      notice.querySelector('span').textContent = provider === 'gemini'
+        ? 'Gemini seçiliyken model, yalnızca gerektiğinde Google Search grounding ile akademik/kurumsal kaynak doğrulaması yapabilir.'
+        : provider === 'ollama'
+          ? 'Ollama seçiliyken canlı web doğrulaması için yerel/uzak tool katmanı kullanılabilir; temel analiz kaynak paketiyle sınırlandırılır.'
+          : 'NVIDIA Build seçiliyken bu denetim yalnızca yüklenen kaynak paketine dayanır; canlı web doğrulaması kullanılmaz.';
+    }
+
+    function providerLabel(provider) {
+      return provider === 'gemini' ? 'Gemini' : provider === 'nvidia' ? 'NVIDIA Build' : 'Ollama';
+    }
+
+    function updateCrossCheckUI() {
+      const provider = $('#providerSelect')?.value || state.config?.provider || 'gemini';
+      const others = ['gemini', 'nvidia', 'ollama'].filter(p => p !== provider);
+      const available = others.filter(p => loadStoredConfig(p));
+      const status = $('#crossCheckStatus');
+      if (!status) return;
+      status.textContent = available.length
+        ? `Hazır: ${available.map(providerLabel).join(' + ')} yapılandırılmış. Cross-check ek çağrı ve token kullanımı yaratır.`
+        : 'İsteğe bağlı cross-check için ikinci bir sağlayıcı/model yapılandırın.';
+      $('#crossCheckToggle').disabled = available.length === 0;
+      if (!available.length) $('#crossCheckToggle').checked = false;
+    }
+
+    function buildReviewSystemPrompt() {
+      const mode = getSelectedMode();
+      const grounding = mode === 'methodology'
+        ? (state.config?.provider === 'gemini'
+          ? `\n\nHARİCİ DOĞRULAMA: Google Search grounding kullanılabilir; yalnızca metodolojik/istatistiksel veya biyolojik makullük değerlendirmesi makale metniyle doğrulanamıyorsa gerekli ve saygın akademik ya da birincil kaynakları ara. Harici kaynakla desteklenen her cümlede doğrudan Markdown bağlantısı ver. Arama sonucu yoksa bunu açıkça belirt ve varsayım yapma.`
+          : state.config?.provider === 'ollama'
+            ? `\n\nHARİCİ DOĞRULAMA: Ollama cloud/local tool katmanında web araması mevcutsa yalnızca gerekli olduğunda kullan. Harici kaynakla desteklenen her cümlede doğrudan bağlantı ver; araç yoksa "harici kaynakla doğrulanamadı" de.`
+            : `\n\nHARİCİ DOĞRULAMA SINIRI: Bu sağlayıcıda canlı kaynak arama aracı yoktur. Biyolojik makullük veya yöntem standardı makale metniyle doğrulanamıyorsa "harici kaynakla doğrulanamadı" de; genel bilgiyi makale kanıtı gibi sunma.`)
+        : '';
+      return `${EVIDENCE_RULES}\n\nSEÇİLİ İNCELEME MODU: ${MODE_DETAILS[mode].label}\n${MODE_DETAILS[mode].instruction}${grounding}`;
+    }
+
+    function buildChatSystemPrompt() {
+      const grounding = getSelectedMode() === 'methodology' && (state.config?.provider === 'gemini' || state.config?.provider === 'ollama')
+        ? ' Gerekirse web araması ile akademik/kurumsal birincil kaynak doğrulaması yap ve harici her iddiaya doğrudan bağlantı ver.'
+        : '';
+      return `${EVIDENCE_RULES}\n\nSÖZLÜ İNCELEME BAĞLAMI\nBu, tamamlanmış bir hakem raporu sonrasındaki soru-cevap turudur. Kullanıcının sorusunu yalnızca makale metni ve önceki rapor bağlamında cevapla. Her anlamlı iddia veya öneriyi kaynak konumuyla etiketle.${grounding} Kullanıcı soru soruyor olsa bile cevap sonunda yeni soru sorma. Seçili başlangıç inceleme modu: ${MODE_DETAILS[getSelectedMode()].label}.`;
+    }
+
+    function buildCrossReviewerPrompt() {
+      return `${EVIDENCE_RULES}\n\nCROSS-CHECK GÖREVİ\nSen ikinci ve bağımsız bir akademik hakemsin. Sana aynı kaynak paketi ile birinci modelin taslak raporu verilecek. Taslağı sorgusuz kabul etme: metin atıflarını tek tek kontrol et, desteklenmeyen iddiaları, yanlış/eksik sayfa atıflarını, iç çelişkileri, yöntem ve istatistik risklerini, aşırı kesinliği ve gözden kaçan güçlü yönleri raporla. Her itirazını kaynak atfı ile bağla; yeni veri veya p-değeri uydurma. Sonuç yalnızca bir denetim notu olsun; kullanıcıya soru sorma.`;
+    }
+
+    function buildCrossSynthesisPrompt() {
+      return `${EVIDENCE_RULES}\n\nCROSS-THINKING SENTEZİ\nBirinci modelin taslağı ve ikinci bağımsız modelin cross-check notu aşağıdadır. İkisini kaynak paketiyle yeniden karşılaştır. Yalnızca metinle desteklenen ve gerektiğinde harici bağlantıyla doğrulanan noktaları nihai hakem raporuna al. İkinci modelin itirazı doğruysa düzelt; yanlışsa nedenini ilgili kaynakla açıkla. Nihai raporda "Cross-check özeti" bölümü aç ve uyuşma/ayrışmaları somut biçimde belirt. Her karar ve öneri kaynak atfı taşımalı; metinde olmayan hiçbir şeyi üretme; raporu soru sormadan bitir.`;
+    }
+
+    function getConfigFromForm() {
+      return {
+        provider: $('#providerSelect').value,
+        connectionMode: 'cloud',
+        apiKey: $('#apiKey').value.trim(),
+        model: $('#modelSelect').value,
+        reasoningEffort: $('#reasoningSelect').value,
+        fallbackEnabled: $('#fallbackToggle')?.checked || false,
+        fallbackTarget: $('#fallbackProviderSelect')?.value || ''
+      };
+    }
+
+    function setConnectionBadge(text, variant = 'ready') {
+      const badge = $('#connectionBadge');
+      const dot = badge.querySelector('span');
+      badge.querySelector('span:last-child').textContent = text;
+      dot.className = `h-1.5 w-1.5 rounded-full ${variant === 'connected' ? 'bg-emerald-400' : variant === 'working' ? 'bg-amber-400 status-pulse' : 'bg-slate-500'}`;
+    }
+
+    function toast(message, type = 'info') {
+      const palette = {
+        info: 'border-indigo-400/25 bg-indigo-500/[.12] text-indigo-100',
+        success: 'border-emerald-400/25 bg-emerald-500/[.12] text-emerald-100',
+        error: 'border-rose-400/25 bg-rose-500/[.12] text-rose-100',
+        warning: 'border-amber-400/25 bg-amber-500/[.12] text-amber-100'
+      };
+      const icon = { info: 'fa-circle-info', success: 'fa-circle-check', error: 'fa-circle-exclamation', warning: 'fa-triangle-exclamation' }[type];
+      const el = document.createElement('div');
+      el.className = `pointer-events-auto flex items-start gap-2.5 rounded-xl border p-3 text-xs shadow-xl shadow-black/20 transition ${palette[type]}`;
+      el.innerHTML = `<i class="fa-solid ${icon} mt-0.5"></i><p class="flex-1 leading-5">${escapeHtml(message)}</p><button class="ml-1 text-current/60 hover:text-current" aria-label="Bildirimi kapat"><i class="fa-solid fa-xmark"></i></button>`;
+      el.querySelector('button').onclick = () => el.remove();
+      $('#toastContainer').append(el);
+      setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(4px)'; setTimeout(() => el.remove(), 220); }, 5200);
+    }
+
+    function escapeHtml(value) {
+      const div = document.createElement('div');
+      div.textContent = value;
+      return div.innerHTML;
+    }
+
+    function formatBytes(bytes) {
+      if (!Number.isFinite(bytes)) return '—';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      const index = Math.min(Math.floor(Math.log(Math.max(bytes, 1)) / Math.log(1024)), units.length - 1);
+      return `${(bytes / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+    }
+
+    function updateFileUI() {
+      const hasFiles = state.files.length > 0;
+      const hasMain = state.files.some(source => source.role === 'primary');
+      $('#fileCard').classList.toggle('hidden', !hasFiles);
+      $('#fileState').textContent = hasFiles ? (hasMain ? `${state.files.length} KAYNAK HAZIR` : 'ANA MAKALE EKSİK') : 'PDF BEKLENİYOR';
+      $('#fileState').className = hasFiles && hasMain ? 'rounded-md bg-emerald-400/10 px-2 py-1 text-[10px] font-bold text-emerald-300' : hasFiles ? 'rounded-md bg-amber-400/10 px-2 py-1 text-[10px] font-bold text-amber-200' : 'rounded-md bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-400';
+      $('#analyzeBtn').disabled = !state.paperText || !hasMain || state.isAnalyzing;
+      if (hasFiles) {
+        const totalBytes = state.files.reduce((total, source) => total + source.file.size, 0);
+        const main = state.files.find(source => source.role === 'primary');
+        $('#fileName').textContent = main ? main.file.name : 'Ana makale seçilmedi';
+        $('#fileSize').textContent = `${state.files.length} PDF · ${formatBytes(totalBytes)}`;
+        $('#pageCount').textContent = state.pages || '—';
+        const words = state.paperText ? state.paperText.replace(/--- PAGE \d+ ---/g, '').trim().split(/\s+/u).filter(Boolean).length : 0;
+        $('#wordCount').textContent = words ? new Intl.NumberFormat('tr-TR').format(words) : '—';
+        $('#sourceFiles').innerHTML = state.files.map(source => `<div class="flex items-center gap-2 px-3 py-2 text-[10px]"><i class="fa-solid ${source.role === 'primary' ? 'fa-file-lines text-indigo-300' : source.role === 'supplement' ? 'fa-paperclip text-cyan-300' : 'fa-envelope-open-text text-fuchsia-300'}"></i><span class="min-w-0 flex-1 truncate text-slate-400">${escapeHtml(source.file.name)}</span><span class="shrink-0 font-mono text-slate-600">${source.pages || '…'} sf.</span><span class="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 font-bold ${source.role === 'primary' ? 'text-indigo-200' : source.role === 'supplement' ? 'text-cyan-200' : 'text-fuchsia-200'}">${source.role === 'primary' ? 'MAKALE' : source.role === 'supplement' ? 'EK' : 'COVER'}</span></div>`).join('');
+        const contextChars = state.paperText.replace(/--- PAGE \d+ ---|=====.*=====/g, '').length;
+        const approxTokens = Math.ceil(contextChars / 4);
+        const contextEl = $('#contextEstimate');
+        contextEl.textContent = approxTokens ? `Yaklaşık bağlam: ${new Intl.NumberFormat('tr-TR').format(approxTokens)} token · Metnin tamamı gönderilir; kırpma yok.` : '';
+        contextEl.className = `border-t border-indigo-400/15 px-3 py-2 text-[10px] leading-4 ${approxTokens > 900000 ? 'text-amber-200' : 'text-slate-500'}`;
+        if (approxTokens > 900000) contextEl.textContent += ' 1M pencereye yaklaşıyor; daha küçük bir paket veya model seçin.';
+      } else {
+        $('#sourceFiles').replaceChildren();
+        $('#contextEstimate').textContent = '';
+      }
+    }
+
+    function setExtractionState(visible, message = 'PDF metni çıkarılıyor…') {
+      const el = $('#extractState');
+      el.classList.toggle('hidden', !visible);
+      el.classList.toggle('flex', visible);
+      el.querySelector('span').textContent = message;
+    }
+
+    function roleLabel(role) {
+      return role === 'primary' ? 'PRIMARY ARTICLE' : role === 'supplement' ? 'SUPPLEMENTARY MATERIAL' : 'COVER LETTER';
+    }
+
+    function rebuildSourceBundle() {
+      const order = { primary: 0, supplement: 1, cover: 2 };
+      state.files.sort((a, b) => order[a.role] - order[b.role]);
+      const primary = state.files.find(source => source.role === 'primary');
+      state.file = primary?.file || null;
+      state.pages = state.files.reduce((total, source) => total + (source.pages || 0), 0);
+      state.paperText = state.files.map(source => `===== ${roleLabel(source.role)}: ${source.file.name} =====\n${source.text}\n===== END DOCUMENT: ${source.file.name} =====`).join('\n\n');
+    }
+
+    async function loadPdfs(fileList, role = 'primary') {
+      const files = [...(fileList || [])];
+      const invalid = files.find(file => !file || (file.type && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')));
+      if (!files.length || invalid) {
+        toast('Lütfen yalnızca PDF dosyaları seçin.', 'warning');
+        return;
+      }
+      // Main article and cover letter are single-role slots; supplementary accepts many files.
+      if (role !== 'supplement') state.files = state.files.filter(source => source.role !== role);
+      const newSources = files.map(file => ({ file, pages: 0, text: '', role }));
+      state.files.push(...newSources);
+      updateFileUI();
+      setExtractionState(true);
+      try {
+        for (let fileIndex = 0; fileIndex < newSources.length; fileIndex++) {
+          const source = newSources[fileIndex];
+          const data = new Uint8Array(await source.file.arrayBuffer());
+          // Mobile browsers can block or fail a cross-origin worker depending on how the
+          // app is hosted. Try the normal worker first, then transparently fall back to
+          // PDF.js' main-thread parser so text extraction still works.
+          let pdf;
+          try {
+            pdf = await pdfjsLib.getDocument({ data, useWorkerFetch: true, isEvalSupported: true }).promise;
+          } catch (workerError) {
+            console.warn('PDF.js worker failed; retrying without worker:', workerError);
+            pdf = await pdfjsLib.getDocument({ data, disableWorker: true }).promise;
+          }
+          source.pages = pdf.numPages;
+          const extractedPages = [];
+          for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
+            setExtractionState(true, `${roleLabel(role)} ${fileIndex + 1}/${newSources.length} · sayfa ${pageNo}/${pdf.numPages} çıkarılıyor…`);
+            // Let the browser paint the progress indicator between pages; this keeps
+            // the UI responsive while PDF.js performs text extraction on large files.
+            await new Promise(resolve => requestAnimationFrame(resolve));
+            const page = await pdf.getPage(pageNo);
+            const content = await page.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
+            const text = content.items.map(item => typeof item.str === 'string' ? item.str : '').join(' ').replace(/\s+/g, ' ').trim();
+            extractedPages.push(`--- PAGE ${pageNo} ---\n${text}`);
+          }
+          source.text = extractedPages.join('\n\n'); // Deliberately no slice(), truncation, or character cap.
+          pdf.cleanup?.();
+          rebuildSourceBundle();
+          updateFileUI();
+        }
+        rebuildSourceBundle();
+        if (!state.paperText.replace(/--- PAGE \d+ ---|=====.*=====/g, '').trim()) {
+          $('#extractWarning span').textContent = 'Yüklenen PDF’lerde seçilebilir metin bulunamadı. PDF.js görüntü tabanlı taramalardan OCR yapmaz; metin tabanlı PDF kullanın.';
+          $('#extractWarning').classList.remove('hidden');
+        }
+        updateFileUI();
+        setConnectionBadge(`${state.files.length} kaynak hazır`, 'connected');
+        toast(`${files.length} PDF işlendi. Kaynak paketi toplam ${state.pages} sayfa.`, 'success');
+      } catch (error) {
+        console.error('PDF extraction error:', error);
+        resetPaper({ keepConfig: true });
+        $('#extractWarning span').textContent = 'PDF dosyalarından biri açılamadı veya metni çıkarılamadı. Dosyaların bozuk ya da şifreli olmadığını kontrol edin.';
+        $('#extractWarning').classList.remove('hidden');
+        toast('PDF metni çıkarılamadı.', 'error');
+      } finally {
+        setExtractionState(false);
+      }
+    }
+
+    function resetPaper({ keepConfig = true } = {}) {
+      state.file = null;
+      state.files = [];
+      state.paperText = '';
+      state.pages = 0;
+      state.reportMarkdown = '';
+      state.chatHistory = [];
+      state.isAnalyzing = false;
+      state.isChatting = false;
+      if (!keepConfig) state.config = null;
+      ['#mainPdfInput', '#suppPdfInput', '#coverPdfInput'].forEach(selector => { if ($(selector)) $(selector).value = ''; });
+      $('#extractWarning').classList.add('hidden');
+      $('#reportContent').replaceChildren();
+      $('#chatMessages').replaceChildren();
+      setReportState('empty');
+      setChatEnabled(false);
+      updateFileUI();
+      toggleReportTools(false);
+      setConnectionBadge('Hazır');
+    }
+
+    function setReportState(view) {
+      $('#emptyState').classList.toggle('hidden', view !== 'empty');
+      $('#analysisState').classList.toggle('hidden', view !== 'loading');
+      $('#reportContentWrap').classList.toggle('hidden', view !== 'report');
+      $('#errorState').classList.toggle('hidden', view !== 'error');
+    }
+
+    function toggleReportTools(enabled) {
+      ['#downloadBtn', '#copyBtn', '#printBtn'].forEach(sel => $(sel).disabled = !enabled);
+    }
+
+    function setChatEnabled(enabled) {
+      $('#chatTabBtn').disabled = !enabled;
+      $('#chatLockIcon').classList.toggle('hidden', enabled);
+    }
+
+    function cleanAiMarkdown(markdown) {
+      if (!markdown) return '';
+      return String(markdown)
+        .replace(/^\s*```(?:markdown|md|text)?\s*/i, '')
+        .replace(/\s*```\s*$/i, '')
+        // Render LaTeX delimiters as readable inline/plain text instead of showing raw dollar signs.
+        .replace(/\$\$([\s\S]*?)\$\$/g, '$1')
+        .replace(/\$([^$\n]+)\$/g, '$1')
+        .replace(/\\\(([^\n]+?)\\\)/g, '$1')
+        .replace(/\\\[([\s\S]*?)\\\]/g, '$1')
+        .trim();
+    }
+
+    function renderMarkdown(markdown, target) {
+      marked.setOptions({ gfm: true, breaks: true });
+      const rendered = marked.parse(cleanAiMarkdown(markdown));
+      const clean = DOMPurify.sanitize(rendered, { USE_PROFILES: { html: true } });
+      target.innerHTML = clean;
+      target.querySelectorAll('p, li, blockquote, td, th').forEach((node) => {
+        // Visual annotation only; actual source tags remain literal content exported to .md.
+        node.innerHTML = node.innerHTML.replace(/\[(PAGE\s+\d+|Table\s+[^\]]+|Section\s+[^\]]+|Supplement:\s*[^\]]+)\]/gi, '<span class="citation">[$1]</span>');
+      });
+      target.querySelectorAll('a').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });
+    }
+
+    function showReport(markdown) {
+      state.reportMarkdown = cleanAiMarkdown(markdown);
+      renderMarkdown(state.reportMarkdown, $('#reportContent'));
+      setReportState('report');
+      toggleReportTools(true);
+      setChatEnabled(true);
+      showTab('report');
+    }
+
+    function showTab(name) {
+      const report = name === 'report';
+      $('#reportView').classList.toggle('hidden', !report);
+      $('#chatView').classList.toggle('hidden', report);
+      const active = 'rounded-md bg-indigo-500/15 px-3 py-1.5 text-xs font-bold text-indigo-200 transition';
+      const inactive = 'rounded-md px-3 py-1.5 text-xs font-bold text-slate-500 transition hover:text-slate-300';
+      $('#reportTabBtn').className = report ? active : inactive;
+      $('#chatTabBtn').className = report ? inactive : active;
+      $('#reportTabBtn').setAttribute('aria-selected', String(report));
+      $('#chatTabBtn').setAttribute('aria-selected', String(!report));
+      if (!report && !$('#chatMessages').children.length) addWelcomeChat();
+    }
+
+    function addWelcomeChat() {
+      appendChatMessage('assistant', 'Rapor tamamlandı. Makalenin yöntemi, bulguları veya revizyon öncelikleri hakkında soru sorabilirsiniz; yanıtlarım makale metnine dayalı sayfa atıfları içerir.');
+    }
+
+    function appendChatMessage(role, text, { pending = false } = {}) {
+      const row = document.createElement('div');
+      row.className = `flex ${role === 'user' ? 'justify-end' : 'justify-start'}`;
+      const bubble = document.createElement('div');
+      bubble.className = role === 'user'
+        ? 'max-w-[86%] rounded-2xl rounded-br-md bg-indigo-600 px-4 py-3 text-sm leading-relaxed text-white shadow-lg shadow-indigo-950/25'
+        : 'report-prose max-w-[90%] rounded-2xl rounded-bl-md border border-slate-700/70 bg-slate-900/85 px-4 py-3 text-sm shadow-sm';
+      if (pending) {
+        bubble.innerHTML = '<span class="inline-flex items-center gap-2 text-xs text-slate-400"><i class="fa-solid fa-circle-notch fa-spin text-indigo-300"></i>Atıflı yanıt hazırlanıyor…</span>';
+      } else if (role === 'assistant') {
+        renderMarkdown(text, bubble);
+      } else {
+        bubble.textContent = text;
+      }
+      row.append(bubble);
+      $('#chatMessages').append(row);
+      $('#chatMessages').scrollTop = $('#chatMessages').scrollHeight;
+      return row;
+    }
+
+    function setLoading(title, detail) {
+      $('#analysisTitle').textContent = title;
+      $('#analysisDetail').textContent = detail;
+    }
+
+    function ensureConfig() {
+      if (!state.config || !state.config.model || (state.config.provider !== 'ollama' && !state.config.apiKey) || (state.config.provider === 'ollama' && !state.config.apiKey)) {
+        openSettings();
+        toast(state.config?.provider === 'ollama' ? 'Ollama için bir model seçin.' : 'Analiz için sağlayıcıyı, API anahtarını ve modeli seçin.', 'warning');
+        return false;
+      }
+      return true;
+    }
+
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    function isRetryable(error) {
+      return error?.name !== 'AbortError' && (error?.retryable || error?.status === 408 || error?.status === 429 || (error?.status >= 500 && error?.status <= 599) || error instanceof TypeError);
+    }
+
+    async function withExponentialBackoff(requestFn, { signal, onRetry, maxRetries = 4 } = {}) {
+      let lastError;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        if (signal?.aborted) throw new DOMException('İstek iptal edildi.', 'AbortError');
+        try {
+          return await requestFn();
+        } catch (error) {
+          lastError = error;
+          if (attempt === maxRetries || !isRetryable(error)) throw error;
+          // 1s, 2s, 4s, 8s plus small jitter to prevent synchronized retries.
+          const wait = Math.min(1000 * (2 ** attempt) + Math.floor(Math.random() * 350), 10000);
+          onRetry?.(attempt + 1, maxRetries, wait, error);
+          await sleep(wait);
+        }
+      }
+      throw lastError;
+    }
+
+    async function readError(response) {
+      let message = `HTTP ${response.status}`;
+      try {
+        const payload = await response.json();
+        message = payload?.error?.message || payload?.message || message;
+      } catch { /* response body isn't JSON */ }
+      const error = new Error(message);
+      error.status = response.status;
+      error.retryable = [401, 402, 403, 404, 408, 409, 429].includes(response.status) || response.status >= 500;
+      return error;
+    }
+
+    function addGeminiGroundingCitations(text, groundingMetadata) {
+      const chunks = groundingMetadata?.groundingChunks || groundingMetadata?.grounding_chunks || [];
+      const supports = groundingMetadata?.groundingSupports || groundingMetadata?.grounding_supports || [];
+      let enriched = text;
+      // Insert only the exact source links associated with returned text segments, from right to left.
+      [...supports].sort((a, b) => (b.segment?.endIndex ?? b.segment?.end_index ?? 0) - (a.segment?.endIndex ?? a.segment?.end_index ?? 0)).forEach(support => {
+        const endIndex = support.segment?.endIndex ?? support.segment?.end_index;
+        const indices = support.groundingChunkIndices || support.grounding_chunk_indices || [];
+        if (!Number.isInteger(endIndex) || !indices.length) return;
+        const links = indices.map(index => {
+          const web = chunks[index]?.web;
+          return web?.uri ? `[Kaynak: ${web.title || 'Google Search'}](${web.uri})` : '';
+        }).filter(Boolean).join(' ');
+        if (links) enriched = `${enriched.slice(0, endIndex)} ${links}${enriched.slice(endIndex)}`;
+      });
+      const sourceRows = [...new Map(chunks.map(chunk => [chunk?.web?.uri, chunk?.web]).filter(([uri]) => uri))].map(([uri, web]) => `- [${web.title || uri}](${uri})`);
+      return sourceRows.length ? `${enriched}\n\n### Google Search doğrulama kaynakları\n${sourceRows.join('\n')}` : enriched;
+    }
+
+    async function requestModelOnce({ system, messages, signal, onRetry, configOverride = null }) {
+      const config = configOverride || state.config;
+      const runRequest = async () => {
+        if (config.provider === 'gemini') {
+          const model = config.model.replace(/^models\//, '');
+          const geminiBody = {
+            system_instruction: { parts: [{ text: system }] },
+            contents: messages.map(message => ({
+              role: message.role === 'assistant' ? 'model' : 'user',
+              parts: [{ text: message.content }]
+            })),
+            generationConfig: { temperature: 0.2, topP: 0.85, maxOutputTokens: 16384 },
+            ...(getSelectedMode() === 'methodology' ? { tools: [{ google_search: {} }] } : {})
+          };
+          let response = await fetch(`${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:generateContent`, {
+            method: 'POST', signal,
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey },
+            body: JSON.stringify(geminiBody)
+          });
+          // Some Gemini models expose generateContent but not Google Search grounding.
+          // Retry once without the optional tool so the evidence-only audit still completes.
+          if (!response.ok && response.status === 400 && geminiBody.tools) {
+            delete geminiBody.tools;
+            response = await fetch(`${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:generateContent`, {
+              method: 'POST', signal,
+              headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey },
+              body: JSON.stringify(geminiBody)
+            });
+          }
+          if (!response.ok) throw await readError(response);
+          const payload = await response.json();
+          const text = payload?.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('') || '';
+          if (!text) {
+            const error = new Error(payload?.promptFeedback?.blockReason ? `Gemini isteği engellendi: ${payload.promptFeedback.blockReason}` : 'Gemini geçerli bir metin yanıtı döndürmedi.');
+            error.retryable = false;
+            throw error;
+          }
+          return addGeminiGroundingCitations(text, payload?.candidates?.[0]?.groundingMetadata || payload?.candidates?.[0]?.grounding_metadata);
+        }
+        if (config.provider === 'ollama') {
+          const endpoint = `${OLLAMA_CLOUD_API_BASE}/chat`;
+          const headers = { 'Content-Type': 'application/json' };
+          if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
+          const think = config.reasoningEffort === 'none' ? false : true;
+          const body = {
+            model: config.model,
+            messages: [{ role: 'system', content: system }, ...messages.map(m => ({ role: m.role, content: m.content }))],
+            temperature: 0.2,
+            stream: false,
+            think
+          };
+          const response = await fetch(endpoint, { method: 'POST', signal, headers, body: JSON.stringify(body) });
+          if (!response.ok) throw await readError(response);
+          const payload = await response.json();
+          const text = payload?.message?.content || '';
+          if (!text) {
+            const error = new Error('Ollama geçerli bir metin yanıtı döndürmedi.');
+            error.retryable = false;
+            throw error;
+          }
+          return text;
+        }
+
+        const response = await fetch(NVIDIA_CHAT_ENDPOINT, {
+          method: 'POST', signal,
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+          body: JSON.stringify({
+            model: config.model,
+            messages: [{ role: 'system', content: system }, ...messages.map(m => ({ role: m.role, content: m.content }))],
+            temperature: 0.2,
+            stream: false,
+            max_tokens: config.model === 'nvidia/nemotron-3-ultra-550b-a55b' ? 32768 : 8192,
+            ...(config.model === 'nvidia/nemotron-3-ultra-550b-a55b'
+              ? { reasoning_effort: config.reasoningEffort || 'high' }
+              : {})
+          })
+        });
+        if (!response.ok) throw await readError(response);
+        let payload;
+        if (response.status === 202) {
+          const pending = await response.json();
+          const requestId = pending?.requestId || pending?.request_id || pending?.id;
+          if (!requestId) throw new Error('NVIDIA isteği beklemeye alındı ancak requestId döndürülmedi.');
+          // Some hosted NIMs return 202 and require polling /v1/status/{requestId}.
+          for (let poll = 0; poll < 40; poll++) {
+            await sleep(1500);
+            const statusResponse = await fetch(`${NVIDIA_API_BASE}/status/${encodeURIComponent(requestId)}`, {
+              signal, headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${config.apiKey}` }
+            });
+            if (statusResponse.status === 202) continue;
+            if (!statusResponse.ok) throw await readError(statusResponse);
+            payload = await statusResponse.json();
+            break;
+          }
+          if (!payload) throw new Error('NVIDIA modeli zamanında sonuç döndürmedi.');
+        } else {
+          payload = await response.json();
+        }
+        const text = payload?.choices?.[0]?.message?.content;
+        if (!text || typeof text !== 'string') {
+          const error = new Error('Sağlayıcı geçerli bir metin yanıtı döndürmedi.');
+          error.retryable = false;
+          throw error;
+        }
+        return text;
+      };
+      return withExponentialBackoff(runRequest, { signal, onRetry });
+    }
+
+    async function requestModel({ system, messages, signal, onRetry, configOverride = null }) {
+      const primary = configOverride || state.config;
+      try {
+        return await requestModelOnce({ system, messages, signal, onRetry, configOverride: primary });
+      } catch (error) {
+        if (configOverride || !primary?.fallbackEnabled || !isRetryable(error)) throw error;
+        const fallback = getFallbackConfig(primary);
+        if (!fallback || (fallback.provider === primary.provider && fallback.model === primary.model)) throw error;
+        setLoading('Yedek modele geçiliyor', `${providerLabel(fallback.provider)} · ${fallback.model}`);
+        return await requestModelOnce({ system, messages, signal, onRetry, configOverride: fallback });
+      }
+    }
+
+    async function analyzePaper() {
+      if (!state.paperText) { toast('Önce metin içeren bir PDF yükleyin.', 'warning'); return; }
+      if (!ensureConfig()) return;
+      if (state.isAnalyzing) return;
+      state.isAnalyzing = true;
+      state.controller = new AbortController();
+      updateFileUI();
+      setReportState('loading');
+      setLoading('Hakem raporu hazırlanıyor', 'Makalenin tamamı seçtiğiniz modele gönderiliyor…');
+      setConnectionBadge('Analiz sürüyor', 'working');
+      try {
+        const notes = $('#reviewNotes').value.trim();
+        const userMessage = `Aşağıda PDF’den eksiksiz olarak çıkarılan kaynak paketi vardır. İlk bölüm PRIMARY ARTICLE, sonrakiler varsa SUPPLEMENTARY MATERIAL’dır. Her dosyada sayfa ayırıcıları kanıt atıfları için korunmuştur.\n\n${notes ? `KULLANICININ ÖZEL BAĞLAMI (yalnızca değerlendirme odağıdır; kanıt değildir):\n${notes}\n\n` : ''}KAYNAK PAKETİ BAŞLANGIÇ\n${state.paperText}\nKAYNAK PAKETİ SONU\n\nSeçili inceleme moduna göre eksiksiz hakem raporunu şimdi üret.`;
+        let report = await requestModel({
+          system: buildReviewSystemPrompt(),
+          messages: [{ role: 'user', content: userMessage }],
+          signal: state.controller.signal,
+          onRetry: (attempt, max, wait, error) => {
+            setLoading('Ağ hatası, tekrar deneniyor', `${attempt}/${max} yeniden deneme · ${Math.ceil(wait / 1000)} sn bekleniyor (${error.message || 'bağlantı sorunu'})`);
+          }
+        });
+        if ($('#crossCheckToggle').checked) {
+          const secondProvider = ['gemini', 'nvidia', 'ollama'].find(p => p !== state.config.provider && loadStoredConfig(p));
+          const secondConfig = secondProvider ? loadStoredConfig(secondProvider) : null;
+          if (!secondConfig) throw new Error('Cross-check için ikinci bir sağlayıcı/model yapılandırın.');
+          setLoading('İkinci model taslağı denetliyor', `${providerLabel(secondProvider)} bağımsız atıf ve çelişki kontrolü yapıyor…`);
+          const crossReview = await requestModel({
+            configOverride: secondConfig,
+            system: buildCrossReviewerPrompt(),
+            messages: [{ role: 'user', content: `KAYNAK PAKETİ:\n${state.paperText}\n\nBİRİNCİ MODEL TASLAK RAPORU:\n${report}` }],
+            signal: state.controller.signal,
+            onRetry: (attempt, max, wait, error) => setLoading('İkinci model yeniden deneniyor', `${attempt}/${max} · ${Math.ceil(wait / 1000)} sn · ${error.message || 'bağlantı sorunu'}`)
+          });
+          setLoading('İki modelin görüşü sentezleniyor', 'Uyuşan ve ayrışan noktalar kaynak paketiyle yeniden karşılaştırılıyor…');
+          report = await requestModel({
+            system: buildCrossSynthesisPrompt(),
+            messages: [{ role: 'user', content: `KAYNAK PAKETİ:\n${state.paperText}\n\nBİRİNCİ MODEL TASLAĞI:\n${report}\n\nİKİNCİ MODEL CROSS-CHECK NOTU:\n${crossReview}` }],
+            signal: state.controller.signal,
+            onRetry: (attempt, max, wait, error) => setLoading('Sentez yeniden deneniyor', `${attempt}/${max} · ${Math.ceil(wait / 1000)} sn · ${error.message || 'bağlantı sorunu'}`)
+          });
+        }
+        showReport(report);
+        setConnectionBadge('Rapor hazır', 'connected');
+        toast('Atıflı hakem raporu oluşturuldu.', 'success');
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          setReportState(state.reportMarkdown ? 'report' : 'empty');
+          toast('Analiz iptal edildi.', 'info');
+        } else {
+          console.error('Analysis error:', error);
+          $('#errorMessage').textContent = friendlyError(error);
+          setReportState('error');
+          toast('Analiz isteği başarısız oldu.', 'error');
+        }
+        setConnectionBadge('Bağlantı hatası');
+      } finally {
+        state.isAnalyzing = false;
+        state.controller = null;
+        updateFileUI();
+      }
+    }
+
+    function friendlyError(error) {
+      if (error instanceof TypeError) return 'Ağ isteği gerçekleştirilemedi. İnternet bağlantınızı ve seçtiğiniz API’nin erişimini kontrol edin.';
+      if (error.status === 401 || error.status === 403) return 'API anahtarı kabul edilmedi veya bu model için yetkiniz yok. Ayarlardan anahtar ve model adını kontrol edin.';
+      if (error.status === 402) return 'NVIDIA hosted API ödeme/kota yanıtı verdi (HTTP 402). NVIDIA Build hesabınızda model erişimi veya deneme kotasını kontrol edin.';
+      if (error.status === 404) return 'Seçilen model hosted uç noktada bulunamadı. Model kataloğunu yenileyip erişilebilir bir sohbet modeli seçin.';
+      if (error.status === 422) return 'Sağlayıcı isteği doğrulayamadı (HTTP 422). Model kataloğundan sohbet destekleyen bir model seçin; istek biçimi otomatik olarak düzeltildi.';
+      if (error.status === 429) return 'Sağlayıcı istek sınırına ulaştı. Uygulama otomatik tekrar denemeleri yaptı; kısa süre sonra yeniden deneyin.';
+      if (error.status === 413) return 'Sağlayıcı isteği kabul edemeyecek kadar büyük buldu. Uygulama makale metnini kırpmadı; daha yüksek bağlam pencereli bir model kullanın.';
+      if (error instanceof SyntaxError) return 'Sağlayıcı yanıtı JSON yerine akış biçiminde geldi. NVIDIA isteği artık stream:false ile gönderiliyor; modeli yeniden deneyin.';
+      return error.message || 'Beklenmeyen bir hata oluştu.';
+    }
+
+    async function sendChat(event) {
+      event.preventDefault();
+      const input = $('#chatInput');
+      const question = input.value.trim();
+      if (!question || state.isChatting || !state.reportMarkdown || !ensureConfig()) return;
+      state.isChatting = true;
+      $('#sendChatBtn').disabled = true;
+      input.value = '';
+      autoResize(input);
+      appendChatMessage('user', question);
+      const pendingRow = appendChatMessage('assistant', '', { pending: true });
+      try {
+        // Full paper + full report are intentionally retained in context; no truncation applies.
+        const messages = [
+          { role: 'user', content: `KAYNAK PAKETİ BAŞLANGIÇ\n${state.paperText}\nKAYNAK PAKETİ SONU\n\nTAM HAKEM RAPORU BAŞLANGIÇ\n${state.reportMarkdown}\nTAM HAKEM RAPORU SONU\n\nKullanıcı sorusu: ${question}` },
+          ...state.chatHistory
+        ];
+        const answer = await requestModel({
+          system: buildChatSystemPrompt(), messages,
+          signal: new AbortController().signal,
+          onRetry: (attempt, max, wait) => {
+            pendingRow.querySelector('span').innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-indigo-300"></i>Bağlantı yeniden deneniyor (${attempt}/${max}, ${Math.ceil(wait / 1000)} sn)…`;
+          }
+        });
+        pendingRow.remove();
+        appendChatMessage('assistant', answer);
+        state.chatHistory.push({ role: 'user', content: `Kullanıcı sorusu: ${question}` }, { role: 'assistant', content: answer });
+      } catch (error) {
+        pendingRow.remove();
+        appendChatMessage('assistant', `**Yanıt alınamadı.** ${friendlyError(error)}`);
+      } finally {
+        state.isChatting = false;
+        $('#sendChatBtn').disabled = false;
+        input.focus();
+      }
+    }
+
+    function autoResize(textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`;
+    }
+
+    function downloadReport() {
+      if (!state.reportMarkdown) return;
+      const title = (state.file?.name || 'papercritic-review').replace(/\.pdf$/i, '').replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'papercritic-review';
+      const header = `# PaperCritic AI — ${MODE_DETAILS[getSelectedMode()].label}\n\n- **Kaynak:** ${state.file?.name || 'PDF'}\n- **Sayfa sayısı:** ${state.pages}\n- **Oluşturulma:** ${new Date().toLocaleString('tr-TR')}\n\n---\n\n`;
+      const blob = new Blob([header + state.reportMarkdown], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = `${title}-papercritic-raporu.md`; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 500);
+      toast('Markdown raporu indirildi.', 'success');
+    }
+
+    async function copyReport() {
+      if (!state.reportMarkdown) return;
+      try {
+        await navigator.clipboard.writeText(state.reportMarkdown);
+        const icon = $('#copyBtn i');
+        icon.className = 'fa-solid fa-check text-emerald-300';
+        toast('Rapor Markdown olarak panoya kopyalandı.', 'success');
+        setTimeout(() => icon.className = 'fa-regular fa-copy', 1600);
+      } catch {
+        toast('Panoya kopyalanamadı. Tarayıcının pano iznini kontrol edin.', 'error');
+      }
+    }
+
+    function printReport() {
+      if (!state.reportMarkdown) return;
+      const printArea = $('#printArea');
+      printArea.innerHTML = `<header style="padding:32px 0 14px;border-bottom:1px solid #cbd5e1"><p style="margin:0;font:700 10px Manrope,sans-serif;letter-spacing:.15em;color:#4f46e5;text-transform:uppercase">PaperCritic AI · Evidence-grounded Review</p><h1 style="margin:6px 0 0;font:800 22px Manrope,sans-serif">${escapeHtml(state.file?.name || 'Akademik Makale')}</h1><p style="margin:8px 0 0;font:400 12px Manrope,sans-serif;color:#475569">${escapeHtml(MODE_DETAILS[getSelectedMode()].label)} · ${state.pages} sayfa · ${new Date().toLocaleString('tr-TR')}</p></header><article class="report-prose" style="padding-top:22px">${$('#reportContent').innerHTML}</article>`;
+      window.print();
+    }
+
+    function openSettings() {
+      const current = state.config || { provider: 'gemini', apiKey: '', model: GEMINI_MODEL_FALLBACKS[0].id, reasoningEffort: 'high' };
+      $('#providerSelect').value = current.provider || 'gemini';
+      $('#apiKey').value = current.apiKey || '';
+      $('#reasoningSelect').value = current.reasoningEffort || 'high';
+      $('#fallbackToggle').checked = !!current.fallbackEnabled;
+      refreshFallbackOptions(current.fallbackTarget || '');
+      updateProviderUI(current.model);
+      $('#settingsModal').classList.remove('hidden');
+      $('#settingsModal').classList.add('flex');
+      if (current.apiKey || current.provider === 'ollama') void refreshModelCatalog(current.apiKey, current.model);
+      setTimeout(() => $('#apiKey').focus(), 50);
+    }
+
+    function closeSettings() {
+      $('#settingsModal').classList.add('hidden');
+      $('#settingsModal').classList.remove('flex');
+    }
+
+    function populateModelSelect(models, selectedId) {
+      const unique = [...new Map(models.filter(model => model?.id).map(model => [model.id, model])).values()]
+        .sort((a, b) => a.id.localeCompare(b.id));
+      const select = $('#modelSelect');
+      select.replaceChildren();
+      unique.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.id;
+        option.textContent = model.label ? `${model.id} — ${model.label}` : model.id;
+        select.append(option);
+      });
+      // Preserve a previously selected model even if a transient catalogue response omits it.
+      if (selectedId && !unique.some(model => model.id === selectedId)) {
+        const option = document.createElement('option');
+        option.value = selectedId;
+        option.textContent = `${selectedId} — seçili model`;
+        select.append(option);
+      }
+      select.value = selectedId || unique[0]?.id || '';
+    }
+
+    function getFallbackModels(provider) {
+      if (provider === 'gemini') return GEMINI_MODEL_FALLBACKS;
+      if (provider === 'nvidia') return NVIDIA_CHAT_MODEL_FALLBACKS;
+      return OLLAMA_DEFAULT_MODELS;
+    }
+
+    function updateReasoningUI() {
+      const provider = $('#providerSelect').value;
+      const isNemotronUltra = provider === 'nvidia' && $('#modelSelect').value === 'nvidia/nemotron-3-ultra-550b-a55b';
+      const isOllama = provider === 'ollama';
+      $('#reasoningGroup').classList.toggle('hidden', !(isNemotronUltra || isOllama));
+      if (!isNemotronUltra && !isOllama) $('#reasoningSelect').value = 'none';
+      if (isOllama) {
+        const option = [...$('#reasoningSelect').options].find(o => o.value === 'high');
+        if (option) option.textContent = 'Thinking — reasoning etkin';
+      }
+    }
+
+    function updateProviderUI(selectedId) {
+      const provider = $('#providerSelect').value;
+      const isGemini = provider === 'gemini';
+      const isNvidia = provider === 'nvidia';
+      const isOllama = provider === 'ollama';
+      const connection = 'cloud';
+      $('#ollamaConnectionGroup').classList.toggle('hidden', !isOllama);
+      const isOllamaCloud = isOllama && connection === 'cloud';
+      $('#apiKeyLabel').textContent = isGemini ? 'Gemini API anahtarı' : 'Ollama Cloud API anahtarı';
+      $('#apiKeyHint').textContent = isGemini ? 'Gemini anahtarı bu cihazın yerel tarayıcı depolamasında saklanır.' : 'Ollama Cloud API anahtarı bu cihazın yerel tarayıcı depolamasında saklanır.';
+      $('#apiKey').placeholder = isGemini ? 'AI Studio anahtarınızı yapıştırın' : isNvidia ? 'nvapi-… anahtarınızı yapıştırın' : 'Ollama API key (sk-…) yapıştırın';
+      $('#apiKey').required = true;
+      $('#modelCatalogHint').textContent = isGemini
+        ? 'Google AI Studio model kataloğu.'
+        : isNvidia
+          ? (USING_LOCAL_NVIDIA_PROXY ? 'NVIDIA Build model kataloğu.' : 'NVIDIA için localhost proxy gerekli.')
+          : 'Ollama Cloud API: doğrudan ollama.com üzerinden çalışır. Mobil/API-only sürüm.';
+      const models = isOllama ? OLLAMA_CLOUD_MODELS : getFallbackModels(provider);
+      populateModelSelect(models, selectedId || models[0]?.id);
+      updateReasoningUI();
+    }
+
+    async function refreshModelCatalog(apiKey, selectedId = $('#modelSelect').value) {
+      const provider = $('#providerSelect').value;
+      const connection = 'cloud';
+      if (!apiKey) { toast('Kataloğu yenilemek için önce API anahtarını girin.', 'warning'); return; }
+      const button = $('#refreshModelsBtn');
+      const hint = $('#modelCatalogHint');
+      button.disabled = true;
+      button.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Yükleniyor';
+      try {
+        let normalized;
+        if (provider === 'ollama') {
+          const response = await fetch(`${OLLAMA_CLOUD_API_BASE}/tags`, { headers: { 'Authorization': `Bearer ${apiKey}` } });
+          if (!response.ok) throw await readError(response);
+          const payload = await response.json();
+          normalized = (Array.isArray(payload?.models) ? payload.models : [])
+            .map(model => ({ id: model.name, label: model.name }))
+            .filter(model => model.id && !/^(llama|kimi)/i.test(model.id));
+          if (!normalized.length) normalized = OLLAMA_CLOUD_MODELS;
+          populateModelSelect(normalized, selectedId);
+          hint.textContent = `${normalized.length} Ollama Cloud modeli katalogdan yüklendi.`;
+        } else if (provider === 'gemini') {
+          let pageToken = '';
+          const geminiModels = [];
+          do {
+            const url = new URL(`${GEMINI_API_BASE}/models`);
+            url.searchParams.set('pageSize', '1000');
+            if (pageToken) url.searchParams.set('pageToken', pageToken);
+            const response = await fetch(url, { headers: { 'x-goog-api-key': apiKey } });
+            if (!response.ok) throw await readError(response);
+            const payload = await response.json();
+            geminiModels.push(...(Array.isArray(payload?.models) ? payload.models : []));
+            pageToken = payload?.nextPageToken || '';
+          } while (pageToken);
+          normalized = geminiModels.filter(model => (model.supportedGenerationMethods || model.supported_actions || []).includes('generateContent')).map(model => ({ id: String(model.name || '').replace(/^models\//, ''), label: model.displayName || model.description || '' })).filter(model => model.id);
+          populateModelSelect(normalized, selectedId);
+          hint.textContent = `${normalized.length} erişilebilir Gemini modeli.`;
+        } else {
+          const response = await fetch(`${NVIDIA_API_BASE}/models`, { headers: { 'Authorization': `Bearer ${apiKey}` } });
+          if (!response.ok) throw await readError(response);
+          const payload = await response.json();
+          const models = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+          normalized = models.map(model => ({ id: typeof model === 'string' ? model : model.id, label: typeof model === 'object' ? (model.owned_by || model.name || '') : '' })).filter(model => model.id);
+          populateModelSelect(normalized, selectedId);
+          hint.textContent = `${normalized.length} erişilebilir NVIDIA Build modeli.`;
+        }
+      } catch (error) {
+        console.warn(`${provider} model catalogue could not be loaded:`, error);
+        const fallback = provider === 'ollama' ? OLLAMA_CLOUD_MODELS : getFallbackModels(provider);
+        populateModelSelect(fallback, selectedId);
+        hint.textContent = provider === 'ollama'
+          ? 'Cloud kataloğu sabit güçlü model listesine döndü; erişim istek sırasında doğrulanır.'
+          : 'Canlı katalog yüklenemedi; hazır model önerileri gösteriliyor.';
+      } finally {
+        button.disabled = false;
+        button.innerHTML = '<i class="fa-solid fa-rotate-right mr-1"></i>Kataloğu yenile';
+        updateReasoningUI();
+      }
+    }
+
+    function refreshFallbackOptions(selectedId = '') {
+      const select = $('#fallbackProviderSelect');
+      if (!select) return;
+      const currentProvider = $('#providerSelect').value;
+      const currentModel = $('#modelSelect')?.value || '';
+      const options = [
+        ['ollama-cloud:deepseek-v4-pro', 'Ollama Cloud API · DeepSeek-V4-Pro'],
+        ['ollama-cloud:qwen3.5', 'Ollama Cloud API · Qwen 3.5 397B'],
+        ['ollama-cloud:gemma4:31b', 'Ollama Cloud API · Gemma 4 31B'],
+        ['ollama-cloud:deepseek-v4-flash', 'Ollama Cloud API · DeepSeek-V4-Flash'],
+        ['gemini:auto', 'Gemini · kayıtlı yapılandırma'],
+      ].filter(([value]) => value !== `${currentProvider}:${currentModel}`);
+      select.replaceChildren();
+      options.forEach(([value,label]) => { const opt=document.createElement('option'); opt.value=value; opt.textContent=label; select.append(opt); });
+      if (selectedId && options.some(([value]) => value === selectedId)) select.value = selectedId;
+    }
+
+    function getFallbackConfig(config) {
+      const raw = $('#fallbackProviderSelect')?.value || '';
+      if (!raw) return null;
+      const split = raw.indexOf(':');
+      const provider = split < 0 ? raw : raw.slice(0, split);
+      const model = split < 0 ? '' : raw.slice(split + 1);
+            if (provider === 'ollama-cloud') {
+        const savedOllama = loadStoredConfig('ollama');
+        const cloudKey = savedOllama?.apiKey || '';
+        if (!cloudKey) return null;
+        return { provider: 'ollama', connectionMode: 'cloud', apiKey: cloudKey, model, reasoningEffort: 'high' };
+      }
+      return loadStoredConfig(provider);
+    }
+
+    const CONFIG_STORAGE_KEY = 'papercritic-api-config-v3-mobile-local';
+
+    function loadStoredConfig(provider = null) {
+      try {
+        const stored = JSON.parse(localStorage.getItem(CONFIG_STORAGE_KEY) || 'null');
+        if (stored?.configs) {
+          const active = provider || stored.activeProvider || 'gemini';
+          return stored.configs[active] || null;
+        }
+        return stored?.provider && stored?.model && (!provider || stored.provider === provider) ? stored : null;
+      } catch { return null; }
+    }
+
+    function saveConfig(config) {
+      state.config = config;
+      try {
+        const existing = JSON.parse(localStorage.getItem(CONFIG_STORAGE_KEY) || 'null');
+        const configs = existing?.configs || {};
+        configs[config.provider] = config;
+        localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify({ activeProvider: config.provider, configs }));
+        // Migrate any older session-only configuration into persistent storage once.
+        const legacy = JSON.parse(sessionStorage.getItem('papercritic-api-config-v3-mobile') || 'null');
+        if (legacy?.configs) {
+          Object.entries(legacy.configs).forEach(([provider, value]) => { if (!configs[provider]) configs[provider] = value; });
+          localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify({ activeProvider: config.provider, configs }));
+        }
+        sessionStorage.removeItem('papercritic-api-config-v3-mobile');
+        sessionStorage.removeItem('papercritic-api-config');
+      } catch { toast('Ayarlar yerel depolamaya yazılamadı; bu oturumda kullanılacak.', 'warning'); }
+      setConnectionBadge(`${providerLabel(config.provider)} hazır`, 'connected');
+    }
+
+    // Event bindings
+    function bindFileDropzone(dropzoneId, inputId, role) {
+      const dropzone = $(`#${dropzoneId}`);
+      const input = $(`#${inputId}`);
+      dropzone.addEventListener('click', () => input.click());
+      dropzone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+      input.addEventListener('change', e => { loadPdfs(e.target.files, role); input.value = ''; });
+      ['dragenter', 'dragover'].forEach(eventName => dropzone.addEventListener(eventName, e => { e.preventDefault(); dropzone.classList.add('dragging'); }));
+      ['dragleave', 'drop'].forEach(eventName => dropzone.addEventListener(eventName, e => { e.preventDefault(); dropzone.classList.remove('dragging'); }));
+      dropzone.addEventListener('drop', e => loadPdfs(e.dataTransfer.files, role));
+    }
+    bindFileDropzone('mainDropzone', 'mainPdfInput', 'primary');
+    bindFileDropzone('suppDropzone', 'suppPdfInput', 'supplement');
+    bindFileDropzone('coverDropzone', 'coverPdfInput', 'cover');
+    $('#clearFileBtn').addEventListener('click', resetPaper);
+    $('#reviewNotes').addEventListener('input', e => $('#notesCount').textContent = `${e.target.value.length} / 4000`);
+    $$('input[name="mode"]').forEach(input => input.addEventListener('change', () => { state.reviewMode = getSelectedMode(); updateModeNotice(); }));
+    $('#analyzeBtn').addEventListener('click', analyzePaper);
+    $('#cancelBtn').addEventListener('click', () => state.controller?.abort());
+    $('#retryBtn').addEventListener('click', analyzePaper);
+    $('#reportTabBtn').addEventListener('click', () => showTab('report'));
+    $('#chatTabBtn').addEventListener('click', () => { if (!$('#chatTabBtn').disabled) showTab('chat'); });
+    $('#chatForm').addEventListener('submit', sendChat);
+    $('#chatInput').addEventListener('input', e => autoResize(e.target));
+    $('#chatInput').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#chatForm').requestSubmit(); } });
+    $('#fullscreenBtn').addEventListener('click', () => {
+      const expanded = $('#workspace').classList.toggle('focus-report');
+      $('#fullscreenBtn').innerHTML = `<i class="fa-solid fa-${expanded ? 'compress' : 'expand'}"></i>`;
+      $('#fullscreenBtn').title = expanded ? 'Panel düzenine dön' : 'Rapor alanını genişlet';
+      $('#fullscreenBtn').setAttribute('aria-label', $('#fullscreenBtn').title);
+    });
+    $('#downloadBtn').addEventListener('click', downloadReport);
+    $('#copyBtn').addEventListener('click', copyReport);
+    $('#printBtn').addEventListener('click', printReport);
+    $('#settingsBtn').addEventListener('click', openSettings);
+    $('#closeSettingsBtn').addEventListener('click', closeSettings);
+    $('#cancelSettingsBtn').addEventListener('click', closeSettings);
+    $('#settingsModal').addEventListener('click', e => { if (e.target === $('#settingsModal')) closeSettings(); });
+    $('#toggleKeyBtn').addEventListener('click', () => {
+      const isPassword = $('#apiKey').type === 'password';
+      $('#apiKey').type = isPassword ? 'text' : 'password';
+      $('#toggleKeyBtn').innerHTML = `<i class="fa-regular fa-eye${isPassword ? '-slash' : ''}"></i>`;
+    });
+    $('#providerSelect').addEventListener('change', () => {
+      const provider = $('#providerSelect').value;
+      const saved = loadStoredConfig(provider);
+      $('#apiKey').value = saved?.apiKey || '';
+      $('#reasoningSelect').value = saved?.reasoningEffort || 'high';
+      updateProviderUI(saved?.model);
+      $('#fallbackToggle').checked = !!saved?.fallbackEnabled;
+      refreshFallbackOptions(saved?.fallbackTarget || '');
+      updateCrossCheckUI();
+    });
+    $('#modelSelect').addEventListener('change', updateReasoningUI);
+    $('#refreshModelsBtn').addEventListener('click', () => refreshModelCatalog($('#apiKey').value.trim()));
+    $('#settingsForm').addEventListener('submit', e => {
+      e.preventDefault();
+      const config = getConfigFromForm();
+      if (!config.model || !config.apiKey) { toast('API anahtarını girip bir model seçin.', 'warning'); return; }
+      saveConfig(config);
+      updateModeNotice();
+      updateCrossCheckUI();
+      closeSettings();
+      toast(`${providerLabel(config.provider)} bağlantısı hazır. PDF yükleyip analizi başlatabilirsiniz.`, 'success');
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#settingsModal').classList.contains('hidden')) closeSettings(); });
+
+    // Restore the last provider/key/model from this browser. Migrate the previous session-only
+    // build once so existing users do not have to paste their API key again.
+    try {
+      if (!localStorage.getItem(CONFIG_STORAGE_KEY)) {
+        const legacy = JSON.parse(sessionStorage.getItem('papercritic-api-config-v3-mobile') || 'null');
+        if (legacy) localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(legacy));
+      }
+    } catch {}
+    state.config = loadStoredConfig();
+    if (state.config) {
+      $('#providerSelect').value = state.config.provider;
+      setConnectionBadge(`${providerLabel(state.config.provider)} hazır`, 'connected');
+      updateProviderUI(state.config.model);
+      $('#fallbackToggle').checked = !!state.config.fallbackEnabled;
+      refreshFallbackOptions(state.config.fallbackTarget || '');
+    } else {
+      updateProviderUI(GEMINI_MODEL_FALLBACKS[0].id);
+      refreshFallbackOptions();
+    }
+    updateModeNotice();
+    updateCrossCheckUI();
+    updateFileUI();
+    if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+    }
+  </script>
+</body>
+</html>
