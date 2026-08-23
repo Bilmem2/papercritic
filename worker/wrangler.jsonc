@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "papercritic-ollama",
+  "main": "ollama-proxy.js",
+  "compatibility_date": "2026-08-23",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  }
+}
