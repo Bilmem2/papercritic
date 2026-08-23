@@ -1,6 +1,6 @@
-/* PaperCritic Mobile v3.4 - Ollama Cloud CORS proxy
+/* PaperCritic Mobile v3.4.1 - Ollama Cloud CORS proxy
  * The worker never stores an Ollama API key. The browser sends its own
- * Authorization: Bearer sk-... header and the worker forwards it upstream.
+ * Authorization: Bearer <API_KEY> header and the worker forwards it upstream.
  */
 
 const ALLOWED_ORIGIN = 'https://bilmem2.github.io';
@@ -48,7 +48,7 @@ export default {
       return jsonResponse(200, {
         ok: true,
         service: 'papercritic-ollama-proxy',
-        version: '3.4',
+        version: '3.4.1',
       });
     }
 
@@ -67,7 +67,9 @@ export default {
     }
 
     const auth = request.headers.get('Authorization');
-    if (!auth || !/^Bearer\s+sk-/i.test(auth)) {
+    // Ollama documents the credential as a Bearer token. Do not assume a
+    // particular key prefix because the API contract does not require one.
+    if (!auth || !/^Bearer\s+\S+/i.test(auth)) {
       return jsonResponse(401, {
         error: 'Missing or invalid Ollama API key.',
       });
