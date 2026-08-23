@@ -32,7 +32,7 @@ export default {
     const origin = request.headers.get('Origin');
 
     // GitHub Pages is the only browser origin allowed to use the proxy.
-    // Origin-less requests are allowed only for diagnostics/health checks.
+    // Origin-less requests are allowed for diagnostics/health checks.
     if (origin && origin !== ALLOWED_ORIGIN) {
       return jsonResponse(403, { error: 'Origin not allowed.' });
     }
@@ -43,7 +43,7 @@ export default {
 
     const url = new URL(request.url);
 
-    // Health endpoint for an easy deployment test.
+    // Health endpoint. No API key required.
     if (url.pathname === '/' || url.pathname === '/health') {
       return jsonResponse(200, {
         ok: true,
@@ -52,11 +52,9 @@ export default {
       });
     }
 
-    // Cloudflare receives the full /api/... path when the Worker is deployed
-    // at the workers.dev hostname. Normalize it explicitly instead of relying
-    // on the previous /ollama-proxy prefix logic.
+    // The Worker receives /api/... directly on its workers.dev hostname.
+    // Normalize the optional legacy prefix as well.
     let upstreamPath = url.pathname;
-
     if (upstreamPath.startsWith('/ollama-proxy/')) {
       upstreamPath = upstreamPath.slice('/ollama-proxy'.length);
     }
@@ -69,18 +67,13 @@ export default {
     }
 
     const auth = request.headers.get('Authorization');
-
     if (!auth || !/^Bearer\s+sk-/i.test(auth)) {
       return jsonResponse(401, {
         error: 'Missing or invalid Ollama API key.',
       });
     }
 
-    const upstream = new URL(
-      upstreamPath + url.search,
-      OLLAMA_ORIGIN
-    );
-
+    const upstream = new URL(upstreamPath + url.search, OLLAMA_ORIGIN);
     const headers = new Headers();
     headers.set('Authorization', auth);
 
@@ -94,10 +87,7 @@ export default {
       const upstreamResponse = await fetch(upstream, {
         method: request.method,
         headers,
-        body:
-          request.method === 'GET' || request.method === 'HEAD'
-            ? undefined
-            : request.body,
+        body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
       });
 
       const responseHeaders = new Headers(upstreamResponse.headers);
