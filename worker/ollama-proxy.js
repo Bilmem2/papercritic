@@ -1,10 +1,14 @@
-/* PaperCritic Mobile v3.4.1 - Ollama Cloud CORS proxy
- * The worker never stores an Ollama API key. The browser sends its own
- * Authorization: Bearer <API_KEY> header and the worker forwards it upstream.
- */
+/* PaperCritic Mobile v3.5.0 - Ollama Cloud CORS proxy */
 
 const ALLOWED_ORIGIN = 'https://bilmem2.github.io';
 const OLLAMA_ORIGIN = 'https://ollama.com';
+
+const MODEL_ALIASES = {
+  'deepseek-v4-flash': 'deepseek-v4-flash:0731',
+  'deepseek-v4-pro': 'deepseek-v4-pro:0813',
+  'qwen3.5': 'qwen3.5:397b',
+  'gemma4': 'gemma4:31b',
+};
 
 function corsHeaders() {
   return {
@@ -27,12 +31,41 @@ function jsonResponse(status, payload) {
   });
 }
 
+async function buildUpstreamRequest(request) {
+  const headers = new Headers();
+  headers.set('Authorization', request.headers.get('Authorization'));
+
+  const contentType = request.headers.get('Content-Type');
+  if (contentType) headers.set('Content-Type', contentType);
+
+  const accept = request.headers.get('Accept');
+  if (accept) headers.set('Accept', accept);
+
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    return { headers, body: undefined };
+  }
+
+  const contentTypeLower = (contentType || '').toLowerCase();
+  if (contentTypeLower.includes('application/json')) {
+    const text = await request.text();
+    try {
+      const payload = JSON.parse(text);
+      if (typeof payload.model === 'string' && MODEL_ALIASES[payload.model]) {
+        payload.model = MODEL_ALIASES[payload.model];
+      }
+      return { headers, body: JSON.stringify(payload) };
+    } catch {
+      return { headers, body: text };
+    }
+  }
+
+  return { headers, body: request.body };
+}
+
 export default {
   async fetch(request) {
     const origin = request.headers.get('Origin');
 
-    // GitHub Pages is the only browser origin allowed to use the proxy.
-    // Origin-less requests are allowed for diagnostics/health checks.
     if (origin && origin !== ALLOWED_ORIGIN) {
       return jsonResponse(403, { error: 'Origin not allowed.' });
     }
@@ -43,17 +76,14 @@ export default {
 
     const url = new URL(request.url);
 
-    // Health endpoint. No API key required.
     if (url.pathname === '/' || url.pathname === '/health') {
       return jsonResponse(200, {
         ok: true,
         service: 'papercritic-ollama-proxy',
-        version: '3.4.1',
+        version: '3.5.0',
       });
     }
 
-    // The Worker receives /api/... directly on its workers.dev hostname.
-    // Normalize the optional legacy prefix as well.
     let upstreamPath = url.pathname;
     if (upstreamPath.startsWith('/ollama-proxy/')) {
       upstreamPath = upstreamPath.slice('/ollama-proxy'.length);
@@ -67,8 +97,6 @@ export default {
     }
 
     const auth = request.headers.get('Authorization');
-    // Ollama documents the credential as a Bearer token. Do not assume a
-    // particular key prefix because the API contract does not require one.
     if (!auth || !/^Bearer\s+\S+/i.test(auth)) {
       return jsonResponse(401, {
         error: 'Missing or invalid Ollama API key.',
@@ -76,20 +104,13 @@ export default {
     }
 
     const upstream = new URL(upstreamPath + url.search, OLLAMA_ORIGIN);
-    const headers = new Headers();
-    headers.set('Authorization', auth);
-
-    const contentType = request.headers.get('Content-Type');
-    if (contentType) headers.set('Content-Type', contentType);
-
-    const accept = request.headers.get('Accept');
-    if (accept) headers.set('Accept', accept);
 
     try {
+      const { headers, body } = await buildUpstreamRequest(request);
       const upstreamResponse = await fetch(upstream, {
         method: request.method,
         headers,
-        body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
+        body,
       });
 
       const responseHeaders = new Headers(upstreamResponse.headers);
@@ -97,7 +118,6 @@ export default {
         responseHeaders.set(key, value);
       }
 
-      // Preserve Ollama streaming responses for /api/chat.
       return new Response(upstreamResponse.body, {
         status: upstreamResponse.status,
         statusText: upstreamResponse.statusText,
