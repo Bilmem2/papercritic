@@ -1,0 +1,53 @@
+name: Fix mobile Ollama routing
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - '.github/workflows/fix-mobile-api-routing.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Patch mobile Ollama endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          old = "const OLLAMA_CLOUD_API_BASE = 'https://ollama.com/api';"
+          new = "const OLLAMA_CLOUD_API_BASE = 'https://papercritic-ollama.can-sevilmis.workers.dev/api';"
+          if old in s:
+              s = s.replace(old, new, 1)
+              s = s.replace('İstekler doğrudan <span class=\"font-mono text-indigo-200\">https://ollama.com/api</span> adresine gider.', 'İstekler doğrudan PaperCritic Cloudflare proxy\'si üzerinden Ollama Cloud\'a gider.', 1)
+              s = s.replace('Ollama Cloud API: doğrudan ollama.com üzerinden çalışır. Mobil/API-only sürüm.', 'Ollama Cloud API: Cloudflare proxy üzerinden çalışır. Mobil/API-only sürüm.', 1)
+              p.write_text(s, encoding='utf-8')
+              print('patched')
+          else:
+              print('already patched')
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- index.html; then
+            echo 'No changes needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'Fix mobile Ollama Cloud API routing'
+          git push
