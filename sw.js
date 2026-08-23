@@ -1,5 +1,6 @@
-const CACHE = 'papercritic-mobile-v3.7';
+const CACHE = 'papercritic-mobile-v3.8';
 const INDEX_PATH = new URL('./index.html', self.location).pathname;
+const ROOT_PATH = new URL('./', self.location).pathname;
 const MANIFEST_PATH = new URL('./manifest.webmanifest', self.location).pathname;
 
 const OLLAMA_DEFAULT_MODELS = `const OLLAMA_DEFAULT_MODELS = [
@@ -20,12 +21,11 @@ const FALLBACK_FUNCTION = `function refreshFallbackOptions(selectedId = '') {
       const currentProvider = $('#providerSelect').value;
       const currentModel = $('#modelSelect')?.value || '';
       const models = currentProvider === 'ollama' ? OLLAMA_CLOUD_MODELS : GEMINI_MODEL_FALLBACKS;
+      const prefix = currentProvider === 'ollama' ? 'ollama-cloud:' : 'gemini:';
+      const labelPrefix = currentProvider === 'ollama' ? 'Ollama Cloud · ' : 'Gemini · ';
       const options = models
         .filter(model => model.id !== currentModel)
-        .map(model => [
-          currentProvider === 'ollama' ? \\`ollama-cloud:\\${model.id}\\` : \\`gemini:\\${model.id}\\`,
-          currentProvider === 'ollama' ? \\`Ollama Cloud · \\${model.id}\\` : \\`Gemini · \\${model.id}\\`
-        ]);
+        .map(model => [prefix + model.id, labelPrefix + model.id]);
       select.replaceChildren();
       if (!options.length) {
         const opt = document.createElement('option');
@@ -61,18 +61,11 @@ const PROVIDER_HANDLER = `$('#providerSelect').addEventListener('change', () => 
 
 function patchIndex(html) {
   let text = html;
-
-  // Only mutate the small configuration fragments. The rest of the known-good
-  // frontend, including PDF upload, chat, review flow, and design, is untouched.
   text = text.replace(/const OLLAMA_DEFAULT_MODELS = \[[\s\S]*?\n    \];/, OLLAMA_DEFAULT_MODELS);
   text = text.replace(/const OLLAMA_CLOUD_MODELS = \[[\s\S]*?\n    \];/, OLLAMA_CLOUD_MODELS);
   text = text.replace(/function refreshFallbackOptions\(selectedId = ''\) \{[\s\S]*?\n    \}\n\n    function getFallbackConfig/, FALLBACK_FUNCTION);
   text = text.replace(/\$\('#providerSelect'\)\.addEventListener\('change', \(\) => \{[\s\S]*?\n    \}\);/, PROVIDER_HANDLER);
-
-  // The Nemotron control is obsolete for mobile Ollama and stays hidden even if
-  // the historical markup exists in a cached/older HTML shell.
   text = text.replace(/<div id="reasoningGroup"/g, '<div id="reasoningGroup" style="display:none"');
-
   return text;
 }
 
@@ -100,13 +93,13 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   const requestUrl = new URL(event.request.url);
-  if (requestUrl.origin !== self.location.origin) return;
+  if (requestUrl.origin !== self.location.origin || event.request.method !== 'GET') return;
 
-  if (requestUrl.pathname === INDEX_PATH && event.request.method === 'GET') {
+  if (requestUrl.pathname === INDEX_PATH || requestUrl.pathname === ROOT_PATH) {
     event.respondWith(
       networkIndexResponse(event.request)
         .catch(async () => {
-          const cached = await caches.match(event.request);
+          const cached = await caches.match(new Request(new URL('./index.html', self.location)));
           if (!cached) throw new Error('No cached index available');
           const html = await cached.text();
           return new Response(patchIndex(html), { headers: cached.headers, status: cached.status, statusText: cached.statusText });
@@ -114,14 +107,14 @@ self.addEventListener('fetch', event => {
         .then(async response => {
           const copy = response.clone();
           const cache = await caches.open(CACHE);
-          await cache.put(event.request, copy);
+          await cache.put(new Request(new URL('./index.html', self.location)), copy);
           return response;
         })
     );
     return;
   }
 
-  if (requestUrl.pathname === MANIFEST_PATH && event.request.method === 'GET') {
-    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
+  if (requestUrl.pathname === MANIFEST_PATH) {
+    event.respondWith(fetch(event.request));
   }
 });
