@@ -1,4 +1,4 @@
-const CACHE = 'papercritic-cloud-api-v4.1';
+const CACHE = 'papercritic-cloud-api-v4.2';
 const INDEX_PATH = new URL('./index.html', self.location).pathname;
 const ROOT_PATH = new URL('./', self.location).pathname;
 const MANIFEST_PATH = new URL('./manifest.webmanifest', self.location).pathname;
@@ -53,7 +53,6 @@ const FALLBACK_FUNCTION = `function refreshFallbackOptions(selectedId = '') {
       });
       if (selectedId && groups.some(([value]) => value === selectedId)) select.value = selectedId;
     }`;
-
 const PROVIDER_LABEL = `function providerLabel(provider) {
       return provider === 'gemini' ? 'Gemini' : provider === 'openrouter' ? 'OpenRouter' : 'Ollama Cloud';
     }`;
@@ -100,7 +99,6 @@ const PROVIDER_HANDLER = `$('#providerSelect').addEventListener('change', () => 
       refreshFallbackOptions(saved?.fallbackTarget || '');
       updateCrossCheckUI();
     });`;
-
 const REFRESH_CATALOG = `async function refreshModelCatalog(apiKey, selectedId = $('#modelSelect').value) {
       const provider = $('#providerSelect').value;
       if (!apiKey) { toast('Kataloğu yenilemek için önce API anahtarını girin.', 'warning'); return; }
@@ -152,7 +150,6 @@ const REFRESH_CATALOG = `async function refreshModelCatalog(apiKey, selectedId =
         updateReasoningUI();
       }
     }`;
-
 const OPENROUTER_BRANCH = `        if (config.provider === 'openrouter') {
           const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST', signal,
@@ -200,6 +197,8 @@ function patchIndex(html) {
   text = text.replace(/\$\('#providerSelect'\)\.addEventListener\('change', \(\) => \{[\s\S]*?\n    \}\);/, PROVIDER_HANDLER);
   text = text.replace(/if \(config\.provider === 'ollama'\) \{/, OPENROUTER_BRANCH + "        if (config.provider === 'ollama') {");
   text = text.replace(/<div id="reasoningGroup"/g, '<div id="reasoningGroup" style="display:none"');
+  text = text.replace(/state\.config = loadStoredConfig\(\);/, "state.config = loadStoredConfig();\n    if (!['gemini', 'ollama', 'openrouter'].includes(state.config?.provider)) { state.config = loadStoredConfig('ollama') || loadStoredConfig('gemini') || loadStoredConfig('openrouter') || null; }");
+  text = text.replace(/const active = provider \|\| stored\.activeProvider \|\| 'gemini';/, "const active = provider || stored.activeProvider || 'gemini';");
   return text;
 }
 
@@ -210,32 +209,27 @@ async function networkIndexResponse(request) {
   const patched = patchIndex(html);
   const headers = new Headers(response.headers);
   headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-  headers.set('X-PaperCritic-Cloud-API', 'v4.1');
+  headers.set('X-PaperCritic-Cloud-API', 'v4.2');
   return new Response(patched, { status: response.status, statusText: response.statusText, headers });
 }
 
 self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
-
 self.addEventListener('fetch', event => {
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== self.location.origin || event.request.method !== 'GET') return;
   if (requestUrl.pathname === INDEX_PATH || requestUrl.pathname === ROOT_PATH) {
-    event.respondWith(
-      networkIndexResponse(event.request)
-        .catch(async () => {
-          const cached = await caches.match(new Request(new URL('./index.html', self.location)));
-          if (!cached) throw new Error('No cached index available');
-          const html = await cached.text();
-          return new Response(patchIndex(html), { headers: cached.headers, status: cached.status, statusText: cached.statusText });
-        })
-        .then(async response => {
-          const copy = response.clone();
-          const cache = await caches.open(CACHE);
-          await cache.put(new Request(new URL('./index.html', self.location)), copy);
-          return response;
-        })
-    );
+    event.respondWith(networkIndexResponse(event.request).catch(async () => {
+      const cached = await caches.match(new Request(new URL('./index.html', self.location)));
+      if (!cached) throw new Error('No cached index available');
+      const html = await cached.text();
+      return new Response(patchIndex(html), { headers: cached.headers, status: cached.status, statusText: cached.statusText });
+    }).then(async response => {
+      const copy = response.clone();
+      const cache = await caches.open(CACHE);
+      await cache.put(new Request(new URL('./index.html', self.location)), copy);
+      return response;
+    }));
     return;
   }
   if (requestUrl.pathname === MANIFEST_PATH) event.respondWith(fetch(event.request));
