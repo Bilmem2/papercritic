@@ -1,0 +1,105 @@
+name: Fix verified Ollama catalog
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-ollama-catalog.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Patch only provider/model configuration
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path('index.html')
+          text = path.read_text(encoding='utf-8')
+
+          # Keep the known-good frontend intact. Only replace the catalog blocks.
+          text, n1 = re.subn(
+              r"const OLLAMA_DEFAULT_MODELS = \[.*?\n    \];",
+              """const OLLAMA_DEFAULT_MODELS = [
+      { id: 'gemma4:31b', label: 'Gemma 4 31B — Ollama Cloud · verified' },
+      { id: 'minimax-m3', label: 'MiniMax M3 — Ollama Cloud · verified' },
+      { id: 'gpt-oss:120b', label: 'GPT-OSS 120B — Ollama Cloud · verified' }
+    ];""",
+              text, count=1, flags=re.S)
+          if n1 != 1:
+              raise SystemExit('OLLAMA_DEFAULT_MODELS block not found')
+
+          text, n2 = re.subn(
+              r"const OLLAMA_CLOUD_MODELS = \[.*?\n    \];",
+              """const OLLAMA_CLOUD_MODELS = [
+      { id: 'gemma4:31b', label: 'Gemma 4 31B — Ollama Cloud · verified' },
+      { id: 'minimax-m3', label: 'MiniMax M3 — Ollama Cloud · verified' },
+      { id: 'gpt-oss:120b', label: 'GPT-OSS 120B — Ollama Cloud · verified' }
+    ];""",
+              text, count=1, flags=re.S)
+          if n2 != 1:
+              raise SystemExit('OLLAMA_CLOUD_MODELS block not found')
+
+          # Scope fallback choices to the provider's own verified model family.
+          text, n3 = re.subn(
+              r"function refreshFallbackOptions\(selectedId = ''\) \{.*?\n    \}\n\n    function getFallbackConfig",
+              """function refreshFallbackOptions(selectedId = '') {
+      const select = $('#fallbackProviderSelect');
+      if (!select) return;
+      const provider = $('#providerSelect').value;
+      const currentModel = $('#modelSelect')?.value || '';
+      const models = provider === 'ollama' ? OLLAMA_CLOUD_MODELS : provider === 'gemini' ? GEMINI_MODEL_FALLBACKS : [];
+      const options = models.filter(model => model.id !== currentModel)
+        .map(model => [provider === 'ollama' ? `ollama-cloud:${model.id}` : `gemini:${model.id}`, `${provider === 'ollama' ? 'Ollama Cloud' : 'Gemini'} · ${model.id}`]);
+      select.replaceChildren();
+      if (!options.length) {
+        const opt = document.createElement('option'); opt.value = ''; opt.textContent = 'Yedek model yok'; select.append(opt); return;
+      }
+      options.forEach(([value, label]) => { const opt = document.createElement('option'); opt.value = value; opt.textContent = label; select.append(opt); });
+      select.value = options.some(([value]) => value === selectedId) ? selectedId : options[0][0];
+    }
+
+    function getFallbackConfig""",
+              text, count=1, flags=re.S)
+          if n3 != 1:
+              raise SystemExit('refreshFallbackOptions block not found')
+
+          # Never carry one provider's API key into another provider's UI.
+          text, n4 = re.subn(
+              r"\$\('#providerSelect'\)\.addEventListener\('change', \(\) => \{.*?\n    \}\);",
+              """$('#providerSelect').addEventListener('change', () => {
+      const provider = $('#providerSelect').value;
+      const saved = loadStoredConfig(provider);
+      $('#apiKey').value = saved?.apiKey || '';
+      updateProviderUI(saved?.model);
+      refreshFallbackOptions(saved?.fallbackTarget || '');
+      const target = saved?.fallbackTarget || '';
+      const valid = [...$('#fallbackProviderSelect').options].some(option => option.value === target);
+      $('#fallbackToggle').checked = !!saved?.fallbackEnabled && valid;
+      updateCrossCheckUI();
+    });""",
+              text, count=1, flags=re.S)
+          if n4 != 1:
+              raise SystemExit('provider change handler not found')
+
+          path.write_text(text, encoding='utf-8')
+          print('Verified Ollama catalog and provider-scoped fallback patch applied.')
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git diff --cached --check
+          git commit -m 'Use verified Ollama Cloud models and scoped fallback'
+          git push
